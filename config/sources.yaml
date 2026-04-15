@@ -1,0 +1,662 @@
+# ============================================================
+# AI Daily News — 信息源配置
+# 最后更新: 2026-04-13
+# 
+# ⚠️ 此文件将迁移至 config.yaml 的 collector.sources 节。
+#    当前保留为独立文件，待 config.yaml 就绪后合入。
+#    参考新架构设计：docs/architecture.md
+# ============================================================
+
+# ── 全局配置（将迁移到 config.yaml → collector 节） ──
+global:
+  # 采集调度
+  fetch_interval_minutes: 30        # 默认采集间隔（分钟）
+  request_timeout_seconds: 15       # 单次请求超时
+  max_retries: 2                    # 请求失败重试次数
+  retry_delay_seconds: 5            # 重试间隔
+  # 去重
+  dedup_window_hours: 72            # 去重时间窗口（小时）
+  dedup_strategy: "url+title"       # 去重策略：url精确 + 标题相似度
+  title_similarity_threshold: 0.85  # 标题相似度阈值（0-1）
+  # 存储
+  data_dir: "./data"                # 数据存储目录
+  db_file: "./data/articles.db"     # SQLite 数据库路径
+  # 日志
+  log_level: "INFO"
+
+# ────────────────────────────────────────
+# 一、RSS 订阅源
+# ────────────────────────────────────────
+
+rss:
+  # ── 1.1 资讯媒体（有 RSS 的网站） ──
+  news:
+    - name: "36氪"
+      url: "https://36kr.com/feed"
+      category: "国内资讯"
+      language: "zh"
+
+    - name: "GameLook"
+      url: "http://www.gamelook.com.cn/feed"
+      category: "国内-游戏行业"
+      language: "zh"
+
+    - name: "TechCrunch AI"
+      url: "https://techcrunch.com/category/artificial-intelligence/feed/"
+      category: "国外资讯"
+      language: "en"
+
+    - name: "The Verge AI"
+      url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+      category: "国外资讯"
+      language: "en"
+
+    - name: "AI News"
+      url: "https://www.artificialintelligence-news.com/feed/"
+      category: "国外资讯"
+      language: "en"
+
+    - name: "量子位"
+      url: "https://www.qbitai.com/feed"
+      category: "国内资讯"
+      language: "zh"
+      note: "WordPress RSS，更新频繁"
+
+    - name: "VentureBeat"
+      url: "https://venturebeat.com/feed/"
+      category: "国外资讯"
+      language: "en"
+      note: "RSS feed 可用（首页 429 不影响 feed 抓取）"
+
+  # ── 1.2 AI 巨头公司官方博客 ──
+  ai_companies:
+    - name: "OpenAI Blog"
+      url: "https://openai.com/blog/rss.xml"
+      category: "AI巨头"
+      language: "en"
+
+    - name: "NVIDIA Blog"
+      url: "https://blogs.nvidia.com/feed/"
+      category: "AI巨头"
+      language: "en"
+
+    - name: "Google AI Blog"
+      url: "https://research.google/blog/rss/"
+      category: "AI巨头"
+      language: "en"
+
+    - name: "Meta AI Engineering"
+      url: "https://engineering.fb.com/feed/"
+      category: "AI巨头"
+      language: "en"
+
+    - name: "Microsoft Research"
+      url: "https://www.microsoft.com/en-us/research/feed/"
+      category: "AI巨头"
+      language: "en"
+
+    - name: "Google DeepMind"
+      url: "https://deepmind.google/blog/rss.xml"
+      category: "AI巨头"
+      language: "en"
+      note: "RSS 可用，之前误判为超时"
+
+  # ── 1.2b 游戏引擎 & 游戏行业 ──
+  game_industry:
+    - name: "Unity Blog"
+      url: "https://unity.com/blog/feed"
+      category: "游戏引擎"
+      language: "en"
+      note: "关注 AI 标签内容"
+
+    - name: "Unreal Engine Blog"
+      url: "https://unrealengine.com/en-US/feed"
+      category: "游戏引擎"
+      language: "en"
+
+    - name: "Game Developer (原 Gamasutra/GDC)"
+      url: "https://www.gamedeveloper.com/rss.xml"
+      category: "游戏行业"
+      language: "en"
+      note: "GDC Vault 相关内容"
+
+  # ── 1.2c VC/投资视角 ──
+  vc_blogs:
+    - name: "a16z Blog"
+      url: "https://a16z.com/feed/"
+      category: "VC/投资"
+      language: "en"
+      note: "Andreessen Horowitz，AI/游戏投资视角"
+
+  # ── 1.3 Hacker News 热门博客 (OPML 源) ──
+  hn_blogs:
+    - name: "Simon Willison"
+      url: "https://simonwillison.net/atom/everything/"
+      category: "HN热门博客"
+      language: "en"
+      note: "LLM 应用实践大佬"
+
+    - name: "Paul Graham"
+      url: "http://www.aaronsw.com/2002/feeds/pgessays.rss"
+      category: "HN热门博客"
+      language: "en"
+      note: "YC创始人"
+
+    - name: "Gary Marcus"
+      url: "https://garymarcus.substack.com/feed"
+      category: "HN热门博客"
+      language: "en"
+      note: "AI批评家/学者"
+
+    - name: "Overreacted (Dan Abramov)"
+      url: "https://overreacted.io/rss.xml"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Jeff Geerling"
+      url: "https://www.jeffgeerling.com/blog.xml"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Sean Goedecke"
+      url: "https://www.seangoedecke.com/rss.xml"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Krebs on Security"
+      url: "https://krebsonsecurity.com/feed/"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Daring Fireball"
+      url: "https://daringfireball.net/feeds/main"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Eric Migicovsky"
+      url: "https://ericmigi.com/rss.xml"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "antirez"
+      url: "http://antirez.com/rss"
+      category: "HN热门博客"
+      language: "en"
+      note: "Redis作者"
+
+    - name: "Pluralistic (Cory Doctorow)"
+      url: "https://pluralistic.net/feed/"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "lcamtuf"
+      url: "https://lcamtuf.substack.com/feed"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Mitchell Hashimoto"
+      url: "https://mitchellh.com/feed.xml"
+      category: "HN热门博客"
+      language: "en"
+      note: "HashiCorp/Ghostty作者"
+
+    - name: "dynomight"
+      url: "https://dynomight.net/feed.xml"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Xe Iaso"
+      url: "https://xeiaso.net/blog.rss"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "The Old New Thing (Microsoft)"
+      url: "https://devblogs.microsoft.com/oldnewthing/feed"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Ken Shirriff"
+      url: "https://www.righto.com/feeds/posts/default"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Armin Ronacher"
+      url: "https://lucumr.pocoo.org/feed.atom"
+      category: "HN热门博客"
+      language: "en"
+      note: "Flask作者"
+
+    - name: "Rachel by the Bay"
+      url: "https://rachelbythebay.com/w/atom.xml"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "minimaxir (Max Woolf)"
+      url: "https://minimaxir.com/index.xml"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "geohot"
+      url: "https://geohot.github.io/blog/feed.xml"
+      category: "HN热门博客"
+      language: "en"
+      note: "tinygrad作者"
+
+    - name: "Gwern"
+      url: "https://gwern.substack.com/feed"
+      category: "HN热门博客"
+      language: "en"
+      note: "AI研究/长文"
+
+    - name: "Dwarkesh Patel"
+      url: "https://www.dwarkeshpatel.com/feed"
+      category: "HN热门博客"
+      language: "en"
+      note: "深度AI访谈播客"
+
+    - name: "Steve Blank"
+      url: "https://steveblank.com/feed/"
+      category: "HN热门博客"
+      language: "en"
+      note: "创业方法论"
+
+    - name: "Troy Hunt"
+      url: "https://www.troyhunt.com/rss/"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Where's Your Ed At"
+      url: "https://www.wheresyoured.at/rss/"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Experimental History"
+      url: "https://www.experimental-history.com/feed"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Anil Dash"
+      url: "https://anildash.com/feed.xml"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Eli Bendersky"
+      url: "https://eli.thegreenplace.net/feeds/all.atom.xml"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "Fabien Sanglard"
+      url: "https://fabiensanglard.net/rss.xml"
+      category: "HN热门博客"
+      language: "en"
+
+    - name: "matklad"
+      url: "https://matklad.github.io/feed.xml"
+      category: "HN热门博客"
+      language: "en"
+      note: "rust-analyzer作者"
+
+    - name: "Construction Physics"
+      url: "https://www.construction-physics.com/feed"
+      category: "HN热门博客"
+      language: "en"
+
+    # 以下是 OPML 中剩余的源（较小众，可按需启用）
+    # - name: "Ibrahim Diallo"
+    #   url: "https://idiallo.com/feed.rss"
+    # - name: "Maurycy Zarzycki"
+    #   url: "https://maurycyz.com/index.xml"
+    # - name: "Terence Eden"
+    #   url: "https://shkspr.mobi/blog/feed/"
+    # - name: "utcc blog"
+    #   url: "https://utcc.utoronto.ca/~cks/space/blog/?atom"
+    # - name: "skyfall.dev"
+    #   url: "https://skyfall.dev/rss.xml"
+    # - name: "John D. Cook"
+    #   url: "https://www.johndcook.com/blog/feed/"
+    # - name: "Giles Thomas"
+    #   url: "https://gilesthomas.com/feed/rss.xml"
+    # - name: "Derek Thompson"
+    #   url: "https://www.theatlantic.com/feed/author/derek-thompson/"
+    # - name: "Evan Hahn"
+    #   url: "https://evanhahn.com/feed.xml"
+    # - name: "Terrible Software"
+    #   url: "https://terriblesoftware.org/feed/"
+    # - name: "Rakhim"
+    #   url: "https://rakhim.exotext.com/rss.xml"
+    # - name: "Joan Westenberg"
+    #   url: "https://joanwestenberg.com/rss"
+    # - name: "xania"
+    #   url: "https://xania.org/feed"
+    # - name: "Micah Lee"
+    #   url: "https://micahflee.com/feed/"
+    # - name: "Andrew Nesbitt"
+    #   url: "https://nesbitt.io/feed.xml"
+    # - name: "Tedium"
+    #   url: "https://feed.tedium.co/"
+    # - name: "Susam Pal"
+    #   url: "https://susam.net/feed.xml"
+    # - name: "Entropic Thoughts"
+    #   url: "https://entropicthoughts.com/feed.xml"
+    # - name: "Hillel Wayne"
+    #   url: "https://buttondown.com/hillelwayne/rss"
+    # - name: "Tim Sheiner"
+    #   url: "https://timsh.org/rss/"
+    # - name: "Fernando Borretti"
+    #   url: "https://borretti.me/feed.xml"
+    # - name: "Jayd"
+    #   url: "https://jayd.ml/feed.xml"
+    # - name: "The Digital Antiquarian"
+    #   url: "https://www.filfre.net/feed/"
+    # - name: "Jim Nielsen"
+    #   url: "https://blog.jim-nielsen.com/feed.xml"
+    # - name: "Dave Farquhar"
+    #   url: "https://dfarq.homeip.net/feed/"
+    # - name: "jyn"
+    #   url: "https://jyn.dev/atom.xml"
+    # - name: "Geoffrey Litt"
+    #   url: "https://www.geoffreylitt.com/feed.xml"
+    # - name: "Doug Brown"
+    #   url: "https://www.downtowndougbrown.com/feed/"
+    # - name: "brutecat"
+    #   url: "https://brutecat.com/rss.xml"
+    # - name: "Abort Retry Fail"
+    #   url: "https://www.abortretry.fail/feed"
+    # - name: "Old VCR"
+    #   url: "https://oldvcr.blogspot.com/feeds/posts/default"
+    # - name: "Bert Hubert"
+    #   url: "https://berthub.eu/articles/index.xml"
+    # - name: "simone.org"
+    #   url: "https://simone.org/feed/"
+    # - name: "beej"
+    #   url: "https://beej.us/blog/rss.xml"
+    - name: "Works on My Machine"
+      url: "https://worksonmymachine.substack.com/feed"
+      category: "HN热门博客"
+      language: "en"
+      note: "post-LLM时代软件开发"
+    # - name: "Philip Laine"
+    #   url: "https://philiplaine.com/index.xml"
+    # - name: "Bernstein Bear"
+    #   url: "https://bernsteinbear.com/feed.xml"
+    # - name: "Daniel Delaney"
+    #   url: "https://danieldelaney.net/feed"
+    # - name: "Herman"
+    #   url: "https://herman.bearblog.dev/feed/"
+    # - name: "keygen"
+    #   url: "https://keygen.sh/blog/feed.xml"
+    # - name: "Ted Unangst"
+    #   url: "https://www.tedunangst.com/flak/rss"
+    # - name: "mjg59"
+    #   url: "https://mjg59.dreamwidth.org/data/rss"
+    # - name: "computer.rip"
+    #   url: "https://computer.rip/rss.xml"
+
+# ────────────────────────────────────────
+# 二、GitHub 信息渠道
+# ────────────────────────────────────────
+
+github:
+  # ── 2.1 GitHub Trending（每日/每周热门仓库 RSS） ──
+  # 来源: https://mshibanami.github.io/GitHubTrendingRSS/
+  trending:
+    - name: "GitHub Trending - 全语言(每日)"
+      url: "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml"
+      period: "daily"
+      note: "每日全语言热门仓库，快速捕捉爆款项目"
+
+    # - name: "GitHub Trending - Python(每日)"
+    #   url: "https://mshibanami.github.io/GitHubTrendingRSS/daily/python.xml"
+    #   period: "daily"
+    #   note: "Python 是 AI/ML 主力语言，重点关注"
+
+    # - name: "GitHub Trending - TypeScript(每日)"
+    #   url: "https://mshibanami.github.io/GitHubTrendingRSS/daily/typescript.xml"
+    #   period: "daily"
+    #   note: "前端/全栈 AI 工具生态"
+
+    - name: "GitHub Trending - 全语言(每周)"
+      url: "https://mshibanami.github.io/GitHubTrendingRSS/weekly/all.xml"
+      period: "weekly"
+      note: "每周维度过滤噪声，看持续热度"
+
+  # ── 2.2 重点仓库 Releases 追踪（按需开启） ──
+  # 格式: https://github.com/{owner}/{repo}/releases.atom
+  # 💡 Trending 已能覆盖"高 star 项目发现"需求，
+  #    Releases 适合追踪你 **日常使用** 的具体工具的版本更新。
+  #    取消注释你实际在用的即可。
+  # releases:
+    # —— LLM 框架 & 推理引擎 ——
+    # - name: "LangChain"
+    #   url: "https://github.com/langchain-ai/langchain/releases.atom"
+    #   category: "LLM框架"
+    # - name: "LlamaIndex"
+    #   url: "https://github.com/run-llama/llama_index/releases.atom"
+    #   category: "LLM框架"
+    # - name: "vLLM"
+    #   url: "https://github.com/vllm-project/vllm/releases.atom"
+    #   category: "推理引擎"
+    # - name: "llama.cpp"
+    #   url: "https://github.com/ggml-org/llama.cpp/releases.atom"
+    #   category: "推理引擎"
+    # - name: "Ollama"
+    #   url: "https://github.com/ollama/ollama/releases.atom"
+    #   category: "推理引擎"
+    # - name: "Transformers (HuggingFace)"
+    #   url: "https://github.com/huggingface/transformers/releases.atom"
+    #   category: "ML框架"
+    # —— AI Agent & 自动化 ——
+    # - name: "AutoGPT"
+    #   url: "https://github.com/Significant-Gravitas/AutoGPT/releases.atom"
+    #   category: "AI Agent"
+    # - name: "CrewAI"
+    #   url: "https://github.com/crewAIInc/crewAI/releases.atom"
+    #   category: "AI Agent"
+    # - name: "AutoGen (Microsoft)"
+    #   url: "https://github.com/microsoft/autogen/releases.atom"
+    #   category: "AI Agent"
+    # - name: "Dify"
+    #   url: "https://github.com/langgenius/dify/releases.atom"
+    #   category: "AI应用平台"
+    # - name: "n8n"
+    #   url: "https://github.com/n8n-io/n8n/releases.atom"
+    #   category: "自动化"
+    # —— MCP 生态 ——
+    # - name: "MCP Servers"
+    #   url: "https://github.com/modelcontextprotocol/servers/releases.atom"
+    #   category: "MCP"
+    # —— SDK ——
+    # - name: "OpenAI Python SDK"
+    #   url: "https://github.com/openai/openai-python/releases.atom"
+    #   category: "SDK"
+    # - name: "Anthropic Python SDK"
+    #   url: "https://github.com/anthropics/anthropic-sdk-python/releases.atom"
+    #   category: "SDK"
+    # —— 多模态 & 开源模型 ——
+    # - name: "ComfyUI"
+    #   url: "https://github.com/Comfy-Org/ComfyUI/releases.atom"
+    #   category: "多模态"
+    # - name: "Llama Models (Meta)"
+    #   url: "https://github.com/meta-llama/llama-models/releases.atom"
+    #   category: "开源模型"
+
+  # ── 2.3 GitHub 官方博客 ──
+  blog:
+    - name: "GitHub Blog"
+      url: "https://github.blog/feed/"
+      category: "平台动态"
+      language: "en"
+      note: "GitHub 官方博客，关注 Copilot/AI 功能更新"
+
+  # ── 2.4 GitHub 用户动态（可按需开启） ──
+  # 格式: https://github.com/{username}.atom
+  # users:
+  #   - name: "Andrej Karpathy"
+  #     url: "https://github.com/karpathy.atom"
+  #     note: "前 OpenAI/Tesla AI 总监"
+  #   - name: "Simon Willison"
+  #     url: "https://github.com/simonw.atom"
+  #     note: "LLM 工具实践大佬"
+
+# ────────────────────────────────────────
+# 三、无 RSS 的网站（通过 Exa 搜索兜底）
+# ────────────────────────────────────────
+
+exa_search:
+  # 这些网站没有可用的 RSS，通过 Exa 定向搜索获取
+  sites:
+    # ── 国内资讯（无 RSS） ──
+    # 量子位已迁移至 RSS（https://www.qbitai.com/feed）
+
+    - name: "新智元"
+      search_query: "site:36kr.com 新智元 AI"
+      language: "zh"
+      note: "无独立 RSS，内容分散在多平台"
+
+    - name: "机器之心"
+      search_query: "site:jiqizhixin.com"
+      language: "zh"
+      note: "无 RSS，用 Exa 定向搜索"
+
+    - name: "白鲸出海"
+      search_query: "site:baijing.cn AI"
+      language: "zh"
+      note: "无 RSS"
+
+    - name: "极客公园"
+      search_query: "site:geekpark.net AI"
+      language: "zh"
+      note: "RSS 地址 SSL 错误无法访问"
+
+    - name: "扬帆出海"
+      search_query: "site:yfchuhai.com AI"
+      language: "zh"
+      note: "无 RSS"
+
+    - name: "竞核"
+      search_query: "竞核 游戏 AI"
+      language: "zh"
+      note: "无 RSS，公众号为主"
+
+    - name: "游戏研究社"
+      search_query: "site:yystv.cn AI"
+      language: "zh"
+      note: "无 RSS"
+
+    - name: "IT桔子"
+      search_query: "site:itjuzi.com AI 融资"
+      language: "zh"
+      note: "RSS 返回 412，反爬"
+
+    # ── 国外资讯（无 RSS 或 RSS 不可用） ──
+    - name: "Reuters AI"
+      search_query: "site:reuters.com artificial intelligence"
+      language: "en"
+      note: "RSS 不可用"
+
+    # ── AI 巨头（无 RSS） ──
+    - name: "Anthropic"
+      search_query: "site:anthropic.com news OR research OR blog"
+      language: "en"
+      note: "无 RSS，404"
+
+    # Google DeepMind 已迁移至 RSS（https://deepmind.google/blog/rss.xml）
+
+    - name: "Roblox"
+      search_query: "site:blog.roblox.com OR site:roblox.com blog AI"
+      language: "en"
+      note: "RSS 403 禁止访问"
+
+  # 通用 AI 关键词搜索（兜底，捕捉 RSS 未覆盖的信息）
+  general_queries:
+    - query: "AI 大模型 发布 2026"
+      language: "zh"
+    - query: "artificial intelligence breakthrough 2026"
+      language: "en"
+    - query: "LLM new release announcement"
+      language: "en"
+    - query: "AI startup funding 2026"
+      language: "en"
+    - query: "AI 应用 产品 上线"
+      language: "zh"
+
+# ────────────────────────────────────────
+# 四、Twitter/X 搜索关键词
+# ────────────────────────────────────────
+
+twitter:
+  search_queries:
+    - query: "AI OR LLM OR GPT min_faves:200 lang:en"
+      type: "top"
+      count: 30
+      note: "英文 AI 热门推文"
+
+    - query: "大模型 OR AI应用 OR 人工智能 lang:zh min_faves:50"
+      type: "top"
+      count: 20
+      note: "中文 AI 热门推文"
+
+    - query: "AI agent OR AI coding min_faves:100 lang:en"
+      type: "top"
+      count: 20
+      note: "AI Agent 方向"
+
+  # 重点追踪账号（补充）
+  accounts:
+    - handle: "@OpenAI"
+    - handle: "@AnthropicAI"
+    - handle: "@GoogleDeepMind"
+    - handle: "@sama"
+    - handle: "@ylecun"
+
+# ────────────────────────────────────────
+# 五、微信公众号（通过 we-mp-rss 采集）
+# ────────────────────────────────────────
+
+wechat:
+  # 已在 we-mp-rss 中订阅的号（共 36 个，status 标注启用/禁用状态）
+  existing:
+    # AI/科技类（✅ 已启用）
+    - "数字生命卡兹克"
+    - "量子位"
+    - "机器之心"
+    - "Founder Park"
+    - "新智元"
+    - "白鲸出海"
+    - "极客公园"
+    - "扬帆出海"
+    - "AI新榜"
+    - "AIGC Studio"
+    - "Tech星球"
+    - "铼三实验室"
+    - "Z Potentials"
+    - "暗涌Waves"
+    - "DataEye"
+    - "葬AI"
+    # 游戏类（✅ 已启用）
+    - "游戏葡萄"
+    - "GameLook"
+    - "竞核"
+    - "游戏研究社"
+    - "LitGate"
+    # 娱乐/短剧（✅ 已启用）
+    - "短剧自习室"
+    # 游戏官方号（✅ 已启用）
+    - "原神"
+    - "崩坏星穹铁道"
+    - "网易蛋仔派对"
+    - "逆水寒手游"
+    # 其他新增（✅ 已启用）
+    - "微信公开课"
+    - "抖音"
+    - "我的世界Minecraft开发者"
+    # 财经/投资类（❌ 已禁用，可按需启用）
+    - "猫笔刀"        # status=0
+    - "寻瑕记"        # status=0
+    - "沧海一土狗"     # status=0
+    - "冷眼局中人"     # status=0
+    - "培风客"        # status=0
+    - "沪上十三少"     # status=0
+    - "猫笔叨的读后感专区"  # status=0
+
+  # （所有目标公众号已覆盖完毕）

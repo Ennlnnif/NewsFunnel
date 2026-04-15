@@ -1,0 +1,1360 @@
+# ═══════════════════════════════════════════
+# AI Daily News — 全局配置
+# 从 sources.yaml 迁移 + 新架构扩展
+# 最后更新: 2026-04-13
+# ═══════════════════════════════════════════
+
+# ── 全局参数 ──
+global:
+  project_name: "AI Daily News"
+  data_dir: "./data"
+  manual_input_dir: "./manual_input"
+  log_level: "INFO"
+
+# ══════════════════════════════════════════
+# Layer 1: 收集配置（collector）
+# ══════════════════════════════════════════
+
+collector:
+  # 采集调度
+  fetch_interval_minutes: 30
+  request_timeout_seconds: 15
+  max_retries: 2
+  retry_delay_seconds: 5
+  # 并发控制
+  max_concurrent_fetches: 10
+  # 条目时间过滤：只保留近 N 天内的文章（0 = 不限制）
+  max_entry_age_days: 2
+
+  # ────────────────────────────────────────
+  # 一、RSS 订阅源
+  # ────────────────────────────────────────
+  sources:
+    rss:
+      # ── 1.1 资讯媒体 ──
+      news:
+        # 36氪已移除：噪音过大
+        # - name: "36氪"
+        #   url: "https://36kr.com/feed"
+        #   category: "国内资讯"
+        #   language: "zh"
+
+        # GameLook RSS 已禁用：优先使用微信公众号（RSS 噪音大）
+        # - name: "GameLook"
+        #   url: "http://www.gamelook.com.cn/feed"
+        #   category: "国内-游戏行业"
+        #   language: "zh"
+
+        - name: "TechCrunch AI"
+          url: "https://techcrunch.com/category/artificial-intelligence/feed/"
+          category: "国外资讯"
+          language: "en"
+
+        - name: "The Verge AI"
+          url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+          category: "国外资讯"
+          language: "en"
+
+        - name: "AI News"
+          url: "https://www.artificialintelligence-news.com/feed/"
+          category: "国外资讯"
+          language: "en"
+
+        # 量子位 RSS 已禁用：优先使用微信公众号（RSS 噪音大）
+        # - name: "量子位"
+        #   url: "https://www.qbitai.com/feed"
+        #   category: "国内资讯"
+        #   language: "zh"
+        #   note: "WordPress RSS，更新频繁"
+
+        - name: "VentureBeat"
+          url: "https://venturebeat.com/feed/"
+          category: "国外资讯"
+          language: "en"
+          note: "RSS feed 可用（首页 429 不影响 feed 抓取）"
+
+      # ── 1.2 AI 巨头公司官方博客 ──
+      ai_companies:
+        - name: "OpenAI Blog"
+          url: "https://openai.com/blog/rss.xml"
+          category: "AI巨头"
+          language: "en"
+
+        - name: "NVIDIA Blog"
+          url: "https://blogs.nvidia.com/feed/"
+          category: "AI巨头"
+          language: "en"
+
+        - name: "Google AI Blog"
+          url: "https://research.google/blog/rss/"
+          category: "AI巨头"
+          language: "en"
+
+        - name: "Meta AI Engineering"
+          url: "https://engineering.fb.com/feed/"
+          category: "AI巨头"
+          language: "en"
+
+        - name: "Microsoft Research"
+          url: "https://www.microsoft.com/en-us/research/feed/"
+          category: "AI巨头"
+          language: "en"
+
+        - name: "Google DeepMind"
+          url: "https://deepmind.google/blog/rss.xml"
+          category: "AI巨头"
+          language: "en"
+          note: "RSS 可用"
+
+      # ── 1.3 游戏引擎 & 游戏行业 ──
+      game_industry:
+        - name: "Unity Blog"
+          url: "https://unity.com/blog/feed"
+          category: "游戏引擎"
+          language: "en"
+          note: "关注 AI 标签内容"
+
+        # Unreal Engine Blog 已迁移至 Exa 搜索（RSS 稳定 403）
+        # - name: "Unreal Engine Blog"
+        #   url: "https://unrealengine.com/en-US/feed"
+        #   category: "游戏引擎"
+        #   language: "en"
+
+        - name: "Game Developer (原 Gamasutra/GDC)"
+          url: "https://www.gamedeveloper.com/rss.xml"
+          category: "游戏行业"
+          language: "en"
+          note: "GDC Vault 相关内容"
+
+      # ── 1.4 VC/投资视角 ──
+      vc_blogs:
+        # a16z Blog 已迁移至 Exa 搜索（RSS 稳定 404）
+        # - name: "a16z Blog"
+        #   url: "https://a16z.com/feed/"
+        #   category: "VC/投资"
+        #   language: "en"
+        #   note: "Andreessen Horowitz，AI/游戏投资视角"
+
+      # ── 1.5 Hacker News 热门博客 (OPML 源) ──
+      hn_blogs:
+        - name: "Simon Willison"
+          url: "https://simonwillison.net/atom/everything/"
+          category: "HN热门博客"
+          language: "en"
+          note: "LLM 应用实践大佬"
+
+        - name: "Paul Graham"
+          url: "http://www.aaronsw.com/2002/feeds/pgessays.rss"
+          category: "HN热门博客"
+          language: "en"
+          note: "YC创始人"
+
+        - name: "Gary Marcus"
+          url: "https://garymarcus.substack.com/feed"
+          category: "HN热门博客"
+          language: "en"
+          note: "AI批评家/学者"
+
+        - name: "Overreacted (Dan Abramov)"
+          url: "https://overreacted.io/rss.xml"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Jeff Geerling"
+          url: "https://www.jeffgeerling.com/blog.xml"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Sean Goedecke"
+          url: "https://www.seangoedecke.com/rss.xml"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Krebs on Security"
+          url: "https://krebsonsecurity.com/feed/"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Daring Fireball"
+          url: "https://daringfireball.net/feeds/main"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Eric Migicovsky"
+          url: "https://ericmigi.com/rss.xml"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "antirez"
+          url: "http://antirez.com/rss"
+          category: "HN热门博客"
+          language: "en"
+          note: "Redis作者"
+
+        - name: "Pluralistic (Cory Doctorow)"
+          url: "https://pluralistic.net/feed/"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "lcamtuf"
+          url: "https://lcamtuf.substack.com/feed"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Mitchell Hashimoto"
+          url: "https://mitchellh.com/feed.xml"
+          category: "HN热门博客"
+          language: "en"
+          note: "HashiCorp/Ghostty作者"
+
+        - name: "dynomight"
+          url: "https://dynomight.net/feed.xml"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Xe Iaso"
+          url: "https://xeiaso.net/blog.rss"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "The Old New Thing (Microsoft)"
+          url: "https://devblogs.microsoft.com/oldnewthing/feed"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Ken Shirriff"
+          url: "https://www.righto.com/feeds/posts/default"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Armin Ronacher"
+          url: "https://lucumr.pocoo.org/feed.atom"
+          category: "HN热门博客"
+          language: "en"
+          note: "Flask作者"
+
+        # Rachel by the Bay 已迁移至 Exa 搜索（RSS SSL 错误）
+        # - name: "Rachel by the Bay"
+        #   url: "https://rachelbythebay.com/w/atom.xml"
+        #   category: "HN热门博客"
+        #   language: "en"
+
+        - name: "minimaxir (Max Woolf)"
+          url: "https://minimaxir.com/index.xml"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "geohot"
+          url: "https://geohot.github.io/blog/feed.xml"
+          category: "HN热门博客"
+          language: "en"
+          note: "tinygrad作者"
+
+        - name: "Gwern"
+          url: "https://gwern.substack.com/feed"
+          category: "HN热门博客"
+          language: "en"
+          note: "AI研究/长文"
+
+        # Dwarkesh Patel 已迁移至 Exa 搜索（RSS 稳定 502）
+        # - name: "Dwarkesh Patel"
+        #   url: "https://www.dwarkeshpatel.com/feed"
+        #   category: "HN热门博客"
+        #   language: "en"
+        #   note: "深度AI访谈播客"
+
+        - name: "Steve Blank"
+          url: "https://steveblank.com/feed/"
+          category: "HN热门博客"
+          language: "en"
+          note: "创业方法论"
+
+        - name: "Troy Hunt"
+          url: "https://www.troyhunt.com/rss/"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Where's Your Ed At"
+          url: "https://www.wheresyoured.at/rss/"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Experimental History"
+          url: "https://www.experimental-history.com/feed"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Anil Dash"
+          url: "https://anildash.com/feed.xml"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Eli Bendersky"
+          url: "https://eli.thegreenplace.net/feeds/all.atom.xml"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Fabien Sanglard"
+          url: "https://fabiensanglard.net/rss.xml"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "matklad"
+          url: "https://matklad.github.io/feed.xml"
+          category: "HN热门博客"
+          language: "en"
+          note: "rust-analyzer作者"
+
+        - name: "Construction Physics"
+          url: "https://www.construction-physics.com/feed"
+          category: "HN热门博客"
+          language: "en"
+
+        - name: "Works on My Machine"
+          url: "https://worksonmymachine.substack.com/feed"
+          category: "HN热门博客"
+          language: "en"
+          note: "post-LLM时代软件开发"
+
+    # ────────────────────────────────────────
+    # 二、GitHub 信息渠道
+    # ────────────────────────────────────────
+    github:
+      # ── 2.1 GitHub Trending（每日/每周热门仓库 RSS） ──
+      trending:
+        - name: "GitHub Trending - 全语言(每日)"
+          url: "https://mshibanami.github.io/GitHubTrendingRSS/daily/all.xml"
+          period: "daily"
+          note: "每日全语言热门仓库，快速捕捉爆款项目"
+
+        - name: "GitHub Trending - 全语言(每周)"
+          url: "https://mshibanami.github.io/GitHubTrendingRSS/weekly/all.xml"
+          period: "weekly"
+          note: "每周维度过滤噪声，看持续热度"
+
+      # ── 2.2 GitHub Search API（领域定向搜索近期新项目） ──
+      # 每条 query 对应一个关注领域，搜索结果自动继承该领域的 relevance_tag
+      # sort: stars/updated   order: desc/asc   created_after_days: 搜索近 N 天创建的项目
+      # GITHUB_TOKEN 环境变量可选（未设置时 10 req/min，设置后 30 req/min）
+      search:
+        - query: "AI agent framework"
+          tag: ai_agent
+          sort: stars
+          max_results: 10
+          created_after_days: 90
+          note: "AI Agent 框架/工具"
+
+        - query: "LLM tool use function calling"
+          tag: ai_agent
+          sort: stars
+          max_results: 5
+          created_after_days: 90
+          note: "LLM 工具调用/Agent 能力"
+
+        - query: "AI coding assistant IDE"
+          tag: ai_agent
+          sort: stars
+          max_results: 5
+          created_after_days: 90
+          note: "AI 编程工具"
+
+        - query: "text to video generation AI"
+          tag: ai_video
+          sort: stars
+          max_results: 5
+          created_after_days: 90
+          note: "AI 视频生成"
+
+        - query: "AI game NPC procedural generation"
+          tag: ai_gaming
+          sort: stars
+          max_results: 5
+          created_after_days: 90
+          note: "AI 游戏/智能 NPC"
+
+        - query: "AI companion chatbot character roleplay"
+          tag: ai_social
+          sort: stars
+          max_results: 5
+          created_after_days: 90
+          note: "AI 社交/伴侣"
+
+        - query: "large language model inference optimization"
+          tag: ai_core
+          sort: stars
+          max_results: 5
+          created_after_days: 90
+          note: "大模型推理优化"
+
+      # ── 2.3 GitHub 官方博客 ──
+      blog:
+        - name: "GitHub Blog"
+          url: "https://github.blog/feed/"
+          category: "平台动态"
+          language: "en"
+          note: "GitHub 官方博客，关注 Copilot/AI 功能更新"
+
+    # ────────────────────────────────────────
+    # 三、无 RSS 的网站（通过 Exa 搜索兜底）
+    # ────────────────────────────────────────
+    exa_search:
+      # 定向搜索（无 RSS 且无微信公众号的网站）
+      # 已有微信公众号订阅的源不再通过 Exa 搜索（避免转载站噪音）
+      sites:
+        # ── 以下 7 个已有微信公众号订阅，Exa 搜索已禁用（2026-04-14） ──
+        # - name: "新智元"          # → 微信: 新智元
+        # - name: "机器之心"        # → 微信: 机器之心
+        # - name: "白鲸出海"        # → 微信: 白鲸出海
+        # - name: "极客公园"        # → 微信: 极客公园
+        # - name: "扬帆出海"        # → 微信: 扬帆出海
+        # - name: "竞核"            # → 微信: 竞核
+        # - name: "游戏研究社"      # → 微信: 游戏研究社
+
+        # ── 以下为无 RSS 且无微信公众号的独立站点 ──
+        - name: "IT桔子"
+          search_query: "site:itjuzi.com AI 融资"
+          language: "zh"
+          note: "RSS 返回 412，反爬"
+
+        - name: "Reuters AI"
+          search_query: "site:reuters.com artificial intelligence"
+          language: "en"
+          note: "RSS 不可用"
+
+        - name: "Anthropic"
+          search_query: "site:anthropic.com news OR research OR blog"
+          language: "en"
+          note: "无 RSS，404"
+
+        - name: "Roblox"
+          search_query: "site:blog.roblox.com OR site:roblox.com blog AI"
+          language: "en"
+          note: "RSS 403 禁止访问"
+
+        # ── RSS 失效源迁移至 Exa 定向搜索 ──
+        - name: "a16z Blog"
+          search_query: "site:a16z.com blog AI OR gaming OR investment"
+          language: "en"
+          note: "RSS 稳定 404，迁移至 Exa"
+
+        - name: "Unreal Engine Blog"
+          search_query: "site:unrealengine.com blog OR news"
+          language: "en"
+          note: "RSS 稳定 403，迁移至 Exa"
+
+        - name: "Rachel by the Bay"
+          search_query: "site:rachelbythebay.com"
+          language: "en"
+          note: "RSS SSL 错误，迁移至 Exa"
+
+        - name: "Dwarkesh Patel"
+          search_query: "site:dwarkeshpatel.com"
+          language: "en"
+          note: "RSS 稳定 502，迁移至 Exa"
+
+      # 通用 AI 关键词搜索 — 已禁用（2026-04-14）
+      # 原因：通用搜索结果质量不可控，大量转载站、聚合新闻、过时文章混入
+      # Exa 现在仅用于 RSS 失效源的定向站点搜索兜底
+      general_queries: []
+      # - query: "AI 大模型 发布 2026"
+      #   language: "zh"
+      # - query: "artificial intelligence breakthrough 2026"
+      #   language: "en"
+      # - query: "LLM new release announcement"
+      #   language: "en"
+      # - query: "AI startup funding 2026"
+      #   language: "en"
+      # - query: "AI 应用 产品 上线"
+      #   language: "zh"
+
+    # ────────────────────────────────────────
+    # 四、Twitter/X 搜索关键词
+    # ────────────────────────────────────────
+    twitter:
+      # 通过 xreach CLI 采集（agent-reach skill 的 Twitter 通道）
+      # 无需配置 Twitter 账号密码或 API Key，开箱即用
+      # 安装: agent-reach install --env=auto
+      search_queries:
+        - query: "AI OR LLM OR GPT min_faves:200 lang:en since:{today}"
+          type: "Top"
+          count: 30
+          note: "英文 AI 热门推文（仅限当日）"
+
+        - query: "大模型 OR AI应用 OR 人工智能 lang:zh min_faves:50 since:{today}"
+          type: "Top"
+          count: 20
+          note: "中文 AI 热门推文（仅限当日）"
+
+        - query: "AI agent OR AI coding min_faves:100 lang:en since:{today}"
+          type: "Top"
+          count: 20
+          note: "AI Agent 方向（仅限当日）"
+
+      # 重点追踪账号
+      accounts:
+        - handle: "@OpenAI"
+        - handle: "@AnthropicAI"
+        - handle: "@GoogleDeepMind"
+        - handle: "@sama"
+        - handle: "@ylecun"
+
+    # ────────────────────────────────────────
+    # 五、微信公众号（通过 we-mp-rss 采集）
+    # ────────────────────────────────────────
+    wechat:
+      # we-mp-rss 本地服务配置
+      # 实际地址可通过 .env 的 WEMPRSS_BASE_URL 覆盖
+      base_url: "http://localhost:8001"
+
+      # RSS feed 路径格式（we-mp-rss v1.4.9）
+      # 全部 RSS：GET /rss
+      # 单个公众号 RSS：GET /feed/{mp_id}.rss
+      # 所有 RSS/Feed 路由无需认证
+
+      # 已订阅的公众号（共 36 个，含 mp_id 用于直接拼接 feed URL）
+      accounts:
+        # AI/科技类（✅ 已启用）
+        - name: "数字生命卡兹克"
+          mp_id: "MP_WXS_3223096120"
+          enabled: true
+        - name: "量子位"
+          mp_id: "MP_WXS_3236757533"
+          enabled: true
+        - name: "机器之心"
+          mp_id: "MP_WXS_3073282833"
+          enabled: true
+        - name: "Founder Park"
+          mp_id: "MP_WXS_3895742803"
+          enabled: true
+        - name: "新智元"
+          mp_id: "MP_WXS_3271041950"
+          enabled: true
+        - name: "白鲸出海"
+          mp_id: "MP_WXS_3075486737"
+          enabled: true
+        - name: "极客公园"
+          mp_id: "MP_WXS_1304308441"
+          enabled: true
+        - name: "扬帆出海"
+          mp_id: "MP_WXS_2397267072"
+          enabled: true
+        - name: "AI新榜"
+          mp_id: "MP_WXS_3077513493"
+          enabled: true
+        - name: "AIGC Studio"
+          mp_id: "MP_WXS_3569895566"
+          enabled: true
+        - name: "Tech星球"
+          mp_id: "MP_WXS_3591736224"
+          enabled: true
+        - name: "铼三实验室"
+          mp_id: "MP_WXS_3957708390"
+          enabled: true
+        - name: "Z Potentials"
+          mp_id: "MP_WXS_3285810954"
+          enabled: true
+        - name: "暗涌Waves"
+          mp_id: "MP_WXS_3940324519"
+          enabled: true
+        - name: "DataEye"
+          mp_id: "MP_WXS_2393225395"
+          enabled: true
+        - name: "葬AI"
+          mp_id: "MP_WXS_3988614169"
+          enabled: true
+        # 游戏类（✅ 已启用）
+        - name: "游戏葡萄"
+          mp_id: "MP_WXS_2399768513"
+          enabled: true
+        - name: "GameLook"
+          mp_id: "MP_WXS_2397402280"
+          enabled: true
+        - name: "竞核"
+          mp_id: "MP_WXS_3902648252"
+          enabled: true
+        - name: "游戏研究社"
+          mp_id: "MP_WXS_3237377160"
+          enabled: true
+        - name: "LitGate"
+          mp_id: "MP_WXS_3927589747"
+          enabled: true
+        # 娱乐/短剧（✅ 已启用）
+        - name: "短剧自习室"
+          mp_id: "MP_WXS_3906677264"
+          enabled: true
+        # 游戏官方号（✅ 已启用）
+        - name: "原神"
+          mp_id: "MP_WXS_3587658698"
+          enabled: true
+        - name: "崩坏星穹铁道"
+          mp_id: "MP_WXS_3907265468"
+          enabled: true
+        - name: "网易蛋仔派对"
+          mp_id: "MP_WXS_3927200069"
+          enabled: true
+        - name: "逆水寒手游"
+          mp_id: "MP_WXS_3272358428"
+          enabled: true
+        # 其他新增（✅ 已启用）
+        - name: "微信公开课"
+          mp_id: "MP_WXS_3975421230"
+          enabled: true
+        - name: "抖音"
+          mp_id: "MP_WXS_3252564661"
+          enabled: true
+        - name: "我的世界Minecraft开发者"
+          mp_id: "MP_WXS_3931172792"
+          enabled: true
+        # 财经/投资类（❌ 已禁用）
+        - name: "猫笔刀"
+          mp_id: "MP_WXS_3198966508"
+          enabled: false
+        - name: "寻瑕记"
+          mp_id: "MP_WXS_3201368453"
+          enabled: false
+        - name: "沧海一土狗"
+          mp_id: "MP_WXS_3516156250"
+          enabled: false
+        - name: "冷眼局中人"
+          mp_id: "MP_WXS_3588476767"
+          enabled: false
+        - name: "培风客"
+          mp_id: "MP_WXS_3887677208"
+          enabled: false
+        - name: "沪上十三少"
+          mp_id: "MP_WXS_3899158947"
+          enabled: false
+        - name: "猫笔叨的读后感专区"
+          mp_id: "MP_WXS_3905839574"
+          enabled: false
+
+# ══════════════════════════════════════════
+# Layer 2: 筛选配置（filter）
+# ══════════════════════════════════════════
+
+filter:
+  # ── 去重参数 ──
+  dedup_window_hours: 72              # 去重时间窗口（加载前 N 小时的历史数据）
+  title_similarity_threshold: 0.85    # 标题模糊去重阈值（difflib.SequenceMatcher）
+
+  # ── 三管道独立配额（main / github / twitter 各自按标签取 top-N，管道间不竞争） ──
+  # 设计思路：三个管道的内容性质差异大，混在一起竞争会导致 GitHub/Twitter 被高分新闻挤掉
+  # 数量配比：主日报 > GitHub > Twitter
+  # 管道→渠道映射：main(rss/wechat/exa/manual), github(github), twitter(twitter)
+  pipeline_quotas:
+    main:                               # 📰 主日报管道（rss/wechat/exa/manual）
+      ai_core: 3
+      ai_agent: 10
+      ai_video: 5
+      ai_gaming: 5
+      ai_social: 5
+      ai_product: 3
+      ai_business: 3
+    github:                             # 🐙 GitHub 管道
+      ai_core: 2
+      ai_agent: 3
+      ai_video: 2
+      ai_gaming: 2
+      ai_social: 2
+      ai_product: 1
+      ai_business: 1
+    twitter:                            # 🐦 Twitter 管道
+      ai_core: 2
+      ai_agent: 2
+      ai_video: 1
+      ai_gaming: 1
+      ai_social: 1
+      ai_product: 1
+      ai_business: 1
+
+  # ── 后备配额（pipeline_quotas 未配置的管道退化为此值） ──
+  quota_per_tag:
+    ai_core: 3
+    ai_agent: 10
+    ai_video: 5
+    ai_gaming: 5
+    ai_social: 5
+    ai_product: 3
+    ai_business: 3
+  default_quota: 5                    # 未配置标签的默认配额
+  min_articles_warning: 3             # 某领域文章数低于此值时标记"低供给"
+
+  # ── LLM 轻筛配置（方案 C：关键词主力 + LLM 去噪/捞漏） ──
+  llm_light_filter:
+    enabled: true                     # 开关，false 时完全退化为纯关键词筛选
+    # 使用系统默认主模型，不额外指定 model
+    batch_size_denoise: 30            # Step 3b 去噪：每批发送的文章数
+    batch_size_rescue: 50             # Step 3c 捞漏：每批发送的标题数
+    # 当前适用管道
+    pipelines:
+      - main                          # 主日报管道（RSS/微信/Exa）
+      # - github                      # 未来扩展：GitHub 收集范围调整后启用
+
+  # ── 观点板块分流配置（2026-04-14 新增） ──
+  # opinion 文章从 main/twitter 管道分流到独立板块
+  # 排序：VIP 优先 > 综合评分（含时效性+覆盖广度）
+  opinion_section:
+    max_items: 3                        # 固定输出 3 篇观点文章
+
+  # ── 内容类型分类配置（技术/产品优先，观点类分流到独立板块） ──
+  # 仅影响主日报管道（rss/wechat/exa）的评分
+  # 在标签配额竞争中，技术/产品类文章因加分而更容易胜出
+  content_type:
+    tech_product_bonus: 0.5           # 技术/产品发布类文章加分
+    opinion_penalty: -1.0             # 普通观点/评论类文章扣分
+    # VIP 作者/源的观点文章不扣分（加 0.0）
+    # 业界大牛的深度观点仍有价值，不应被降权
+    vip_authors:
+      # AI 领域核心人物
+      - "Sam Altman"
+      - "Jensen Huang"
+      - "黄仁勋"
+      - "Satya Nadella"
+      - "Mark Zuckerberg"
+      - "Demis Hassabis"
+      - "Dario Amodei"
+      - "Andrej Karpathy"
+      - "karpathy"
+      - "Yann LeCun"
+      - "ylecun"
+      - "Jim Fan"
+      - "Ilya Sutskever"
+      - "Geoffrey Hinton"
+      - "Andrew Ng"
+      - "吴恩达"
+      - "李彦宏"
+      # 行业分析大牛
+      - "Matthew Ball"
+      - "matthewball"
+      - "Ben Thompson"
+      - "stratechery"
+      - "Benedict Evans"
+      # 顶级技术博客作者
+      - "Simon Willison"
+      - "Paul Graham"
+      - "Lilian Weng"
+    vip_sources:
+      - "OpenAI Blog"
+      - "Anthropic"
+      - "Google DeepMind"
+      - "Google AI Blog"
+      - "Simon Willison"
+      - "a16z Blog"
+
+  # ══════════════════════════════════════════
+  # 第一道漏斗：相关性标签（关键词匹配）
+  # ══════════════════════════════════════════
+
+  # ══════════════════════════════════════════
+  # 渠道通行证：这些渠道的文章跳过关键词筛选，直接进入评分排序
+  # 注意：GitHub 已移除通行证，扩大采集范围后需要做相关性验证
+  # ══════════════════════════════════════════
+  always_pass_channels:
+    # - github   # 已移除：Search API 扩展后需要关键词/LLM 验证相关性
+    - manual     # 手工输入已是人工判断
+    - wechat     # 微信公众号是人工精选的29个号，信噪比高；标题"吸睛体"+摘要极短导致signals命中率极低，交给LLM分类
+
+  # ══════════════════════════════════════════
+  # 关键词体系：signals（信号词）+ brands（品牌词，仅供 LLM 参考）
+  #
+  # 设计原则（2026-04-14 重构）：
+  #   signals — 参与关键词硬筛，判断"跟 AI 有没有关系"
+  #   brands  — 不参与硬筛（噪音大），仅保留在 config 中供 LLM 分类时参考
+  #   板块归属由 LLM 智能分类决定（primary_tag），不由关键词标签决定
+  # ══════════════════════════════════════════
+
+  relevance_tags:
+    # ─── 🔴 核心领域（priority: core） ───
+    ai_core:
+      priority: core
+      # 品牌词单独命中不够，必须同时有技术信号词
+      # 例如 "OpenAI收购Hiro" 只命中品牌词 OpenAI → 不归入 ai_core（归 ai_business）
+      # 例如 "OpenAI发布GPT-5新架构" 命中品牌词+信号词 → 归入 ai_core
+      require_signal: true
+      # 信号词：聚焦通用多模态模型 + 技术架构创新
+      # 垂直领域模型（视频/Agent/NPC/游戏）归入对应板块，不在此处
+      # 芯片/安全/硬件/监管已移至 ai_product
+      signals:
+        - "大模型"
+        - "大语言模型"
+        - "开源模型"
+        - "多模态模型"
+        - "基础模型"
+        - "foundation model"
+        - "language model"
+        - "AI模型"
+        - "模型发布"
+        - "模型评测"
+        - "模型训练"
+        - "模型推理"
+        - "AI推理"
+        - "预训练"
+        - "pre-train"
+        - "post-training"
+        - "微调"
+        - "fine-tune"
+        - "fine-tuning"
+        - "对齐"
+        - "alignment"
+        - "思维链"
+        - "chain of thought"
+        - "长上下文"
+        - "long context"
+        - "上下文窗口"
+        - "context window"
+        - "检索增强"
+        - "向量数据库"
+        - "知识蒸馏"
+        - "distillation"
+        - "量化"
+        - "quantization"
+        - "扩散模型"
+        - "模型架构"
+        - "model architecture"
+        - "AI开源"
+        - "open source AI"
+        - "open-source AI"
+        - "AI研究"
+        - "AI research"
+        - "AI突破"
+        - "AI breakthrough"
+        # 已从日报剔除（不关注）：AI芯片/AI chip/AI安全/AI safety/AI监管/AI regulation
+      # 品牌词：已知的具体模型/公司名
+      brands:
+        - "GPT-4"
+        - "GPT-5"
+        - "o1"           # ⚠️ 短词，自动词边界
+        - "o3"           # ⚠️ 短词，自动词边界
+        - "o4"           # ⚠️ 短词，自动词边界
+        - "Claude"
+        - "Gemini"
+        - "Llama"
+        - "Qwen"
+        - "通义"
+        - "DeepSeek"
+        - "Mistral"
+        - "Grok"
+        - "豆包"
+        - "文心"
+        - "GLM"          # ⚠️ 短词，自动词边界
+        - "Phi"          # ⚠️ 短词，自动词边界
+        - "Yi"           # ⚠️ 短词，自动词边界
+        - "零一万物"
+        - "Kimi"
+        - "Moonshot"
+        - "OpenAI"
+        - "Anthropic"
+        - "Google DeepMind"
+        - "Meta AI"
+        - "xAI"          # ⚠️ 短词，自动词边界
+        - "Hugging Face"
+        - "HuggingFace"
+        - "Groq"
+        - "Together AI"
+        - "Fireworks AI"
+        - "Cohere"
+        - "LLM"          # ⚠️ 短词，自动词边界
+        - "RLHF"         # ⚠️ 短词，自动词边界
+        - "DPO"          # ⚠️ 短词，自动词边界
+        - "RAG"          # ⚠️ 短词，自动词边界
+        # NPU 已移至 ai_product（硬件相关）
+        - "transformer"
+        - "diffusion"
+        - "embedding"
+        - "inference"
+        - "benchmark"
+
+    ai_gaming:
+      priority: core
+      signals:
+        # 信号词：AI+游戏交叉领域的通用描述
+        - "AI游戏"
+        - "游戏AI"
+        - "AI原生游戏"
+        - "AI native game"
+        - "游戏研发提效"
+        - "AI辅助游戏开发"
+        - "AI辅助游戏"
+        - "AI生成关卡"
+        - "AI生成剧情"
+        - "AI生成角色"
+        - "游戏内容生成"
+        - "AI配音"
+        - "AI对话系统"
+        - "智能NPC"
+        - "AI NPC"
+        - "游戏Agent"
+        - "AIGC游戏"
+        - "游戏AIGC"
+        - "AI驱动游戏"
+        - "游戏大模型"
+        - "游戏生成"
+        - "game generation"
+        - "AI game"
+        - "procedural generation"   # 程序化生成（游戏语境）
+        # 2026-04-13 补充：游戏行业通用高频词
+        - "游戏引擎"
+        - "game engine"
+        - "游戏开发"
+        - "game dev"
+        - "虚拟人"
+        - "数字人游戏"
+        - "游戏AI技术"
+        - "AI玩家"
+        - "AI bot"
+        - "游戏测试AI"
+        - "AI QA"
+        # 2026-04-14 补充：AI UGC 游戏编辑器、AI 桌面助手、AI 宠物
+        - "UGC游戏"
+        - "UGC编辑器"
+        - "游戏编辑器"
+        - "game editor"
+        - "AI UGC"
+        - "用户创作游戏"
+        - "AI桌面助手"
+        - "桌面宠物"
+        - "desktop pet"
+        - "desktop assistant"
+        - "AI宠物"
+        - "AI pet"
+        - "AI玩具"
+        - "AI toy"
+        - "机器人宠物"
+        - "虚拟宠物"
+      brands:
+        - "AI Dungeon"
+        - "Unity Muse"
+        - "Unity Sentis"
+        - "Roblox AI"
+        # 2026-04-13 补充：游戏行业主要引擎/公司
+        - "Unreal Engine"
+        - "Unity"
+        - "Godot"
+        - "CocosAI"
+        # 2026-04-14 补充
+        - "ropet"
+
+    ai_video:
+      priority: core
+      signals:
+        - "AI视频"
+        - "AI短剧"
+        - "AI动画"
+        - "AI短片"
+        - "AI电影"
+        - "AI导演"
+        - "AI分镜"
+        - "AI特效"
+        - "AI剪辑"
+        - "AI互动视频"
+        - "互动影视"
+        - "文生视频"
+        - "text to video"
+        - "text-to-video"
+        - "视频生成"
+        - "video generation"
+        - "图生视频"
+        - "image to video"
+        - "image-to-video"
+        - "视频大模型"
+        - "AI视频生成"
+        - "AI视频编辑"
+        - "AI video"
+      brands:
+        - "Sora"
+        - "Kling"
+        - "可灵"
+        - "Runway"
+        - "Pika"
+        - "Luma"
+        - "Veo"
+        - "HailuoAI"
+        - "海螺AI"
+        - "Dream Machine"
+        - "PixVerse"
+        - "Wan"
+        - "万相"
+        - "CogVideo"
+        - "Hailuo"
+        - "Minimax Video"
+
+    ai_social:
+      priority: core
+      signals:
+        - "AI社交"
+        - "AI聊天"
+        - "AI伴侣"
+        - "AI companion"
+        - "社交AI"
+        - "AI角色扮演"
+        - "AI roleplay"
+        - "虚拟恋人"
+        - "AI好友"
+        - "AI陪伴"
+        - "情感AI"
+        - "数字人社交"
+        - "AI对话"
+        - "AI交友"
+        - "virtual companion"
+        - "AI character"
+        - "AI persona"
+        - "social AI"
+        # 2026-04-13 补充：情感陪伴/AI男女友相关
+        - "AI男友"
+        - "AI女友"
+        - "AI情感"
+        - "情感陪伴"
+        - "AI boyfriend"
+        - "AI girlfriend"
+        - "AI恋人"
+        - "虚拟陪伴"
+        - "AI闺蜜"
+        - "emotional AI"
+      brands:
+        - "Character.AI"
+        - "Character AI"
+        - "Replika"
+        - "Talkie"
+        - "Kindroid"
+        - "Nomi"
+        - "Chai"
+
+    ai_agent:
+      priority: core
+      signals:
+        # Agent 领域通用概念
+        - "AI Agent"
+        - "智能体"
+        - "Agentic"
+        - "多Agent"
+        - "multi-agent"
+        - "Function Calling"
+        - "Tool Use"
+        - "AI编程"
+        - "AI Coding"
+        - "AI IDE"
+        - "Computer Use"
+        - "Browser Use"
+        - "AI自动化"
+        - "AI编排"
+        - "AI工作流"
+        - "AI orchestration"
+        - "agent framework"
+        - "agent平台"
+        - "agent开发"
+        - "代码生成"
+        - "code generation"
+        - "AI代码"
+        - "AI code"
+        - "自主编程"
+        - "autonomous coding"
+        - "AI workflow"
+        # Agent 服务/托管/架构（聚焦可上手使用的产品和架构设计，不关注底层基建）
+        - "managed agent"
+        - "agent service"
+        - "agent托管"
+        - "agent架构"
+        - "agent部署"
+      brands:
+        - "AutoGPT"
+        - "Manus"
+        - "OpenManus"
+        - "MCP"          # ⚠️ 短词，自动词边界
+        - "Model Context Protocol"
+        - "Dify"
+        - "Coze"
+        - "扣子"
+        - "LangChain"
+        - "LangGraph"
+        - "CrewAI"
+        - "Copilot"
+        - "Cursor"
+        - "Devin"
+        - "Cline"
+        - "Windsurf"
+        - "n8n"          # ⚠️ 短词，自动词边界
+        - "Claude Code"
+        - "OpenHands"
+        - "SWE-bench"
+        - "Hermes Agent"
+        - "Codex CLI"
+
+    # ─── 🟡 补充了解（priority: supplementary） ───
+    ai_product:
+      priority: supplementary
+      signals:
+        - "AI产品"
+        - "AI应用"
+        - "AI工具"
+        - "AI搜索"
+        - "AI写作"
+        - "AI设计"
+        - "AI教育"
+        - "AI翻译"
+        - "AI音乐"
+        - "AI绘画"
+        - "AI画图"
+        - "文生图"
+        - "text to image"
+        - "text-to-image"
+        - "图像生成"
+        - "image generation"
+        - "AI办公"
+        - "AI助手"
+        - "AI助理"
+        - "提示词"
+        - "prompt engineering"
+        - "AI新产品"
+        - "AI发布"
+        - "AI launch"
+        - "AI startup"
+        - "AI创业"
+        # AI 宠物/桌面助手已归入 ai_gaming
+        # 已剔除出日报（不关注）：AI芯片/AI安全/AI硬件/AI监管/AI眼镜等
+      brands:
+        - "Perplexity"
+        - "Midjourney"
+        - "Stable Diffusion"
+        - "DALL-E"
+        - "Notion AI"
+        - "Claude Artifacts"
+        - "GPTs"
+        - "ChatGPT"
+        - "Gemini App"
+        - "Copilot+"
+        - "Apple Intelligence"
+
+    # ─── 🟠 行业动态（priority: fyi，需同时命中 signals + company_whitelist） ───
+    ai_business:
+      priority: fyi
+      signals:
+        - "融资"
+        - "收购"
+        - "IPO"
+        - "估值"
+        - "营收"
+        - "ARR"          # ⚠️ 短词，自动词边界
+        - "用户量"
+        - "DAU"          # ⚠️ 短词，自动词边界
+        - "funding"
+        - "acquisition"
+        - "valuation"
+        - "revenue"
+      # 仅匹配以下头部公司的商业动态
+      company_whitelist:
+        - "OpenAI"
+        - "Anthropic"
+        - "Google"
+        - "Meta"
+        - "xAI"
+        - "字节"
+        - "ByteDance"
+        - "腾讯"
+        - "阿里"
+        - "百度"
+        - "Mistral"
+        - "月之暗面"
+        - "Moonshot"
+        - "MiniMax"
+        - "智谱"
+        - "DeepSeek"
+        - "零一万物"
+
+  # 优质源加分（评分阶段额外加 0.5 分 bonus，不影响相关性筛选）
+  always_pass_sources: []   # 清空，不再自动通过
+  bonus_sources:
+    - "OpenAI Blog"
+    - "Anthropic"
+    - "Google DeepMind"
+    - "Google AI Blog"
+
+  # ══════════════════════════════════════════
+  # 第二道漏斗：热度评分 + 领域配额
+  # ══════════════════════════════════════════
+  # 主日报评分（满分 8 分，四维度）：
+  #   时效性(0-3.0) + 覆盖广度(0-3.0) + 多标签加成(0-1.5)
+  #   + 内容类型调整(tech_product:+0.5, opinion:-1.0, vip_opinion:+0.0, news:+0.0)
+  #   + 优质源 bonus(0-0.5)
+  #
+  # GitHub/Twitter 管道保留互动数据维度（0-2.0，stars/likes 有真实数据）
+  # 源权重不参与评分，仅用于去重时选代表文章
+
+  # ── 源权重（仅用于去重选代表，不参与评分） ──
+  # 同一事件被多源报道时，选源权重高的那篇作为代表
+  # 微信源格式为 "微信: XX"，配置时写 "XX" 即可自动匹配
+  source_weights:
+    "OpenAI Blog": 10
+    "Google DeepMind": 9
+    "Google AI Blog": 9
+    "Anthropic": 9
+    "TechCrunch AI": 8
+    "量子位": 7
+    "机器之心": 7
+    "新智元": 6
+    "Simon Willison": 7
+    "GitHub Trending - 全语言(每日)": 6
+    "a16z Blog": 6
+    "GameLook": 5
+    "The Verge AI": 7
+    "VentureBeat": 6
+    # 微信 AI 一线媒体（与 RSS 平权）
+    "量子位": 8
+    "机器之心": 8
+    "新智元": 7
+    "极客公园": 7
+    "Founder Park": 7
+    # 微信 AI 垂直媒体
+    "AIGC Studio": 6
+    "AI新榜": 6
+    "数字生命卡兹克": 6
+    "LitGate": 6
+    "葬AI": 5
+    "铼三实验室": 5
+    "Z Potentials": 5
+    "暗涌Waves": 5
+    "Tech星球": 5
+    # 微信 游戏/影视 源
+    "游戏葡萄": 6
+    "游戏研究社": 6
+    "竞核": 6
+    "短剧自习室": 5
+
+  # ── 源级别分类（用于时效性差异化衰减曲线）──
+  source_tiers:
+    official:     # 慢衰减：24h 内都算"新鲜"
+      - "OpenAI Blog"
+      - "Anthropic"
+      - "Google DeepMind"
+      - "Google AI Blog"
+    media:        # 标准衰减：6h 内最新鲜
+      - "TechCrunch AI"
+      - "量子位"
+      - "机器之心"
+      - "新智元"
+      - "The Verge AI"
+      - "VentureBeat"
+      - "a16z Blog"
+      - "GameLook"
+      # 微信 AI 媒体（通过前缀匹配自动识别 "微信: 量子位"）
+      - "AIGC Studio"
+      - "AI新榜"
+      - "数字生命卡兹克"
+      - "LitGate"
+      - "Founder Park"
+      - "极客公园"
+      - "游戏葡萄"
+      - "游戏研究社"
+    # 未列出的源默认归入 aggregate（快衰减）
+
+  # ── 渠道默认权重 ──
+  channel_weights:
+    rss: 2         # RSS 正式源有结构化数据，质量较稳定
+    github: 2      # GitHub Trending 代表社区热度
+    wechat: 1      # 微信公众号（不高于其他主日报源，靠LLM分类+评分公平竞争）
+    exa: 1         # Exa 搜索结果质量不如直接订阅
+    twitter: 1     # Twitter 噪声较多，但有时效性优势
+    manual: 3      # 手工输入默认最高权重（人工判断过的）
+
+  # ── 互动数据阈值 ──
+  engagement_thresholds:
+    twitter:
+      # 综合热度 = likes×1.0 + retweets×3.0 + views×0.01（聚焦 trending）
+      heat_high: 800    # 综合热度 ≥ 800 → 2 分（大规模传播的热门推文）
+      heat_medium: 250   # 综合热度 ≥ 250 → 1.5 分
+      heat_low: 80       # 综合热度 ≥ 80 → 1 分
+    github:
+      high: 100    # stars ≥ 100 → 2 分
+      medium: 30   # stars ≥ 30 → 1 分（≥10 → 0.5，<10 → 0）
+
+  # ── Twitter 质量控制 ──
+  # 推文先过关键词相关性，再过热度硬门槛，最后按热度排序竞争配额
+  twitter_quality:
+    min_heat: 50                        # 综合热度最低门槛（低于此值直接淘汰）
+    # 公式：likes×1.0 + retweets×3.0 + views×0.01（聚焦 trending，不捞冷门）
+    # 参考：likes=7 views=489 → heat≈11.9（不过门槛）
+    #       likes=140 retweets=42 views=24760 → heat≈513.6（轻松过门槛）
+
+  # ── GitHub 质量控制 ──
+  # 项目先过关键词相关性，再过最低 stars 门槛，最后按 stars 排序竞争配额
+  github_quality:
+    min_stars: 5                        # 最低 stars 门槛（低于此值直接淘汰）
+    # 避免 ★1-2 的低质量/spam 项目在供给不足的标签中凑数入选
+
+  # ── 冷门保护 ──
+  cold_protection:
+    enabled: true
+    threshold_override: 2        # 受保护文章的通过阈值（正常核心是 4）
+    max_protected_per_day: 3     # 每天最多保护 3 篇，防止噪声
+    protected_sources:
+      - "Simon Willison"
+      - "Lilian Weng"
+      - "Jay Alammar"
+    protected_tags:              # 这些标签的文章更值得保护
+      - "ai_core"
+      - "ai_gaming"
+      - "ai_agent"
+
+  # ── URL 归一化：要去除的 tracking 参数 ──
+  url_strip_params:
+    - "utm_source"
+    - "utm_medium"
+    - "utm_campaign"
+    - "utm_content"
+    - "utm_term"
+    - "ref"
+    - "source"
+    - "from"
+    - "spm"
+    - "share_from"
+    - "share_source"
+    - "f"
+
+# ══════════════════════════════════════════
+# Layer 3: 编辑配置（editor）
+# ══════════════════════════════════════════
+
+editor:
+  # LLM 工作由 CodeBuddy 在对话中完成，不依赖外部 API
+  # Prompt 模板参见 layers/editor.py 中的 SECTION_PROMPT / TWITTER_PROMPT / GITHUB_PROMPT
+  summary_max_length: 50
+
+  # ── 主日报板块（按 relevance_tag 映射，固定顺序展示） ──
+  # 顺序决定双标签文章的归属优先级：
+  #   垂直领域优先于通用（ai_core 排后）
+  #   行业动态优先于产品（收购/IPO 类归 ai_business 而非 ai_product）
+  # 仅处理 main 管道文章，GitHub/Twitter/Opinion 有独立小节
+  sections:
+    - tag: ai_agent
+      title: "AI Agent"
+    - tag: ai_video
+      title: "AI视频"
+    - tag: ai_gaming
+      title: "AI游戏"
+    - tag: ai_social
+      title: "AI社交"
+    - tag: ai_core
+      title: "AI通用技术/模型"
+    - tag: ai_business
+      title: "AI行业动态"
+    - tag: ai_product
+      title: "其他值得关注的产品"
+
+  # ── Twitter / GitHub / Opinion 独立小节 ──
+  # 不按标签分组，按各自规则排序展示
+  twitter_section:
+    title: "Twitter 热门"
+    max_items: 10                     # 最多展示条数
+  github_section:
+    title: "GitHub 热门项目"
+    max_items: 10
+  opinion_section:
+    title: "行业观点"
+    max_items: 3                      # 固定 3 篇精选观点
+
+# ══════════════════════════════════════════
+# Layer 4: 归档配置（archiver）
+# ══════════════════════════════════════════
+
+archiver:
+  raw_retention_days: 30
+  knowledge_extraction: true
