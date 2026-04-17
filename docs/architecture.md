@@ -47,6 +47,10 @@
 > **Layer 3 summary 规范**：2026-04-17，四个 Prompt 统一更新：≤80字、必须出现产品名、不堆砌数字、参考副标题写法、summary 与 keywords 不允许信息重复
 > **防伪 URL 双重防线**：2026-04-17，filter.py 自动生成 llm_results_template.json（URL 从 filtered.json 预填）；editor.py 新增 _validate_llm_urls() 校验，URL 不匹配则报错终止
 > **板块定义第三轮**：2026-04-17，ai_agent 剔除 Agent 基础设施（沙箱/治理/编排）和 Agent 合规风险→not_relevant；rescue() 新增 dup_of 检查防止重复报道被捞回
+> **板块定义第四轮**：2026-04-17，TTS/语音模型从 ai_core→ai_video，世界模型从 ai_core→ai_gaming（按应用场景归属）
+> **Bug 修复×3**：2026-04-17，①_generate_llm_results_template 字段名不一致（读 `output_section` 改为 `_output_section`）②Twitter 文章识别改用 `channel=="twitter"` ③`_github_subpipe` 仅标记 GitHub 文章
+> **模板增强**：2026-04-17，llm_results_template 新增 _excerpt/MUST_FETCH 标记 + _tag_source/_priority（keyword_fallback=low）；llm_filter_results_template 新增标题聚类（同事件排一起）
+> **classify fallback**：2026-04-17，LLM 分类缺失时从关键词标签补 _primary_tag_llm，标记 _tag_source="keyword_fallback"
 > **design 原则**：每一层都有独立运行时逻辑，层间通过 JSON 文件解耦，支持从任意层重跑。
 
 ---
