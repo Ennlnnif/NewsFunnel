@@ -26,8 +26,12 @@ from typing import Optional
 
 import feedparser
 import httpx
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
+
+# 自动加载项目根目录的 .env（保证 EXA_API_KEY、GITHUB_TOKEN 等可用）
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 logger = logging.getLogger("collector")
 console = Console()
@@ -160,15 +164,26 @@ class RSSFetcher(BaseFetcher):
     覆盖信息源（来自 config.yaml）：
     - 资讯媒体: GameLook、TechCrunch AI、The Verge AI、AI News、量子位、VentureBeat
     - AI 巨头: OpenAI、NVIDIA、Google AI、Meta AI、Microsoft Research、DeepMind
-    - 游戏引擎: Unity、Unreal Engine、Game Developer
+    - 游戏引擎: Unity、Unreal Engine
     - VC/投资: a16z
     - HN 热门博客: Simon Willison、Paul Graham、Gary Marcus 等 ~30 个
+
+    RSS 可靠性机制：
+    - 单次失败 → 当次由 Exa site:domain 兜底
+    - 连续 ≥3 天失败 → 自动降级为 Exa 永久源（跳过 RSS，直接走 Exa）
+    - 失败计数持久化在 data/rss_fail_history.json
     """
+
+    # 连续失败多少天后，自动降级为 Exa 永久替代
+    DEGRADE_AFTER_DAYS = 3
 
     def __init__(self, config: dict, **kwargs):
         super().__init__(config, **kwargs)
         self.sources = self._collect_rss_sources()
         self.failed_sources: list[dict] = []  # 记录失败的源，供 Exa 兜底
+        self.degraded_sources: list[dict] = []  # 已降级为 Exa 的源（连续失败≥3天）
+        self._fail_history_path = Path("data/rss_fail_history.json")
+        self._fail_history = self._load_fail_history()
 
     def _collect_rss_sources(self) -> list[dict]:
         """从 config 中收集所有 RSS 源（扁平化各子分类）"""
@@ -181,23 +196,119 @@ class RSSFetcher(BaseFetcher):
                     sources.append(src)
         return sources
 
+    def _load_fail_history(self) -> dict:
+        """加载 RSS 失败历史记录
+
+        格式: {source_name: {"consecutive_days": N, "last_fail_date": "2026-04-15", "url": "..."}}
+        """
+        if self._fail_history_path.exists():
+            try:
+                with open(self._fail_history_path, encoding="utf-8") as f:
+                    return json.load(f)
+            except (json.JSONDecodeError, OSError):
+                return {}
+        return {}
+
+    def _save_fail_history(self):
+        """保存 RSS 失败历史"""
+        self._fail_history_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._fail_history_path, "w", encoding="utf-8") as f:
+            json.dump(self._fail_history, f, ensure_ascii=False, indent=2)
+
+    def _update_fail_history(self, succeeded_names: set[str], failed_names: set[str]):
+        """更新失败计数：成功的清零，失败的+1
+
+        规则：
+        - 成功采集 → 连续失败计数归零（恢复健康）
+        - 失败 → 如果和上次失败是不同日期，consecutive_days +1
+        - 同一天多次失败只计1次
+        """
+        today = datetime.now().strftime("%Y-%m-%d")
+
+        # 成功的源：清除失败记录
+        for name in succeeded_names:
+            if name in self._fail_history:
+                logger.info(f"RSS [{name}] 恢复成功，清除连续失败记录")
+                del self._fail_history[name]
+
+        # 失败的源：更新计数
+        for src in self.failed_sources:
+            name = src["name"]
+            if name not in self._fail_history:
+                self._fail_history[name] = {
+                    "consecutive_days": 1,
+                    "last_fail_date": today,
+                    "url": src.get("url", ""),
+                    "last_error": src.get("error", "")[:100],
+                }
+            else:
+                record = self._fail_history[name]
+                if record.get("last_fail_date") != today:
+                    record["consecutive_days"] += 1
+                    record["last_fail_date"] = today
+                record["last_error"] = src.get("error", "")[:100]
+
+        self._save_fail_history()
+
+    def _get_degraded_sources(self) -> list[dict]:
+        """获取连续失败 ≥ DEGRADE_AFTER_DAYS 天的源（应降级为 Exa 永久替代）"""
+        degraded = []
+        for name, record in self._fail_history.items():
+            if record.get("consecutive_days", 0) >= self.DEGRADE_AFTER_DAYS:
+                degraded.append({
+                    "name": name,
+                    "url": record.get("url", ""),
+                    "language": "en",
+                    "consecutive_days": record["consecutive_days"],
+                })
+        return degraded
+
+    def _should_skip_rss(self, source_name: str) -> bool:
+        """是否应跳过该 RSS 源（已降级为 Exa 永久替代）"""
+        record = self._fail_history.get(source_name, {})
+        return record.get("consecutive_days", 0) >= self.DEGRADE_AFTER_DAYS
+
     async def fetch(self) -> list[RawArticle]:
-        """并发采集所有 RSS 源"""
+        """并发采集所有 RSS 源
+
+        已降级的源（连续失败 ≥3 天）会被跳过，由 Exa 永久替代。
+        """
         articles = []
         semaphore = asyncio.Semaphore(
             self.config.get("collector", {}).get("max_concurrent_fetches", 10)
         )
 
+        # 分离：已降级的源 vs 正常源
+        active_sources = []
+        for src in self.sources:
+            if self._should_skip_rss(src["name"]):
+                self.degraded_sources.append({
+                    "name": src["name"],
+                    "url": src.get("url", ""),
+                    "category": src.get("category", ""),
+                    "language": src.get("language", "en"),
+                })
+                days = self._fail_history[src["name"]]["consecutive_days"]
+                logger.warning(
+                    f"RSS [{src['name']}] 已降级为 Exa（连续失败 {days} 天），跳过 RSS 采集"
+                )
+            else:
+                active_sources.append(src)
+
         async def fetch_one(source: dict) -> list[RawArticle]:
             async with semaphore:
                 return await self._fetch_single_rss(source)
 
-        tasks = [fetch_one(src) for src in self.sources]
+        tasks = [fetch_one(src) for src in active_sources]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        for src, result in zip(self.sources, results):
+        succeeded_names = set()
+        failed_names = set()
+
+        for src, result in zip(active_sources, results):
             if isinstance(result, Exception):
                 logger.error(f"RSS 采集失败 [{src['name']}]: {result}")
+                failed_names.add(src["name"])
                 # 记录失败源，供 Exa 兜底搜索
                 self.failed_sources.append({
                     "name": src["name"],
@@ -209,9 +320,13 @@ class RSSFetcher(BaseFetcher):
             else:
                 articles.extend(result)
                 if result:
+                    succeeded_names.add(src["name"])
                     logger.info(
                         f"RSS 采集成功 [{src['name']}]: {len(result)} 篇"
                     )
+
+        # 更新失败历史（持久化）
+        self._update_fail_history(succeeded_names, failed_names)
 
         return articles
 
@@ -649,7 +764,8 @@ class ExaFetcher(BaseFetcher):
             .get("exa_search", {})
         )
         self.api_key = os.getenv("EXA_API_KEY", "")
-        self.fallback_sources: list[dict] = []  # 由 run_collector 注入的 RSS 失败源
+        self.fallback_sources: list[dict] = []  # 由 run_collector 注入的 RSS 偶发失败源
+        self.degraded_sources: list[dict] = []  # 由 run_collector 注入的 RSS 永久降级源
 
     async def fetch(self) -> list[RawArticle]:
         """采集所有 Exa 搜索源"""
@@ -722,6 +838,34 @@ class ExaFetcher(BaseFetcher):
                         )
                 except Exception as e:
                     logger.error(f"Exa 兜底失败 [{src['name']}]: {e}")
+
+        # RSS 降级源永久替代搜索（连续 ≥3 天失败的源）
+        if self.degraded_sources:
+            logger.info(f"Exa 永久替代: {len(self.degraded_sources)} 个降级 RSS 源")
+            for src in self.degraded_sources:
+                try:
+                    if not src.get("url"):
+                        logger.warning(f"Exa 永久替代跳过 [{src['name']}]: 无 URL")
+                        continue
+                    from urllib.parse import urlparse
+                    domain = urlparse(src["url"]).netloc
+                    if not domain:
+                        logger.warning(f"Exa 永久替代跳过 [{src['name']}]: 无法解析域名")
+                        continue
+                    search_query = f"site:{domain}"
+                    result = await self._search_exa(
+                        query=search_query,
+                        source_name=f"{src['name']}(Exa替代)",
+                        language=src.get("language", "en"),
+                        num_results=5,
+                    )
+                    articles.extend(result)
+                    if result:
+                        logger.info(
+                            f"Exa 永久替代成功 [{src['name']}]: {len(result)} 篇 (site:{domain})"
+                        )
+                except Exception as e:
+                    logger.error(f"Exa 永久替代失败 [{src['name']}]: {e}")
 
         return articles
 
@@ -1093,6 +1237,26 @@ class WeChatFetcher(BaseFetcher):
             )
             return []
 
+        # ── 微信 RSS 时效性检查（2026-04-16 新增）──
+        # 检查 RSS 中最新文章的 pubDate，如果超过 48h 未更新则截停采集
+        stale = await self._check_rss_freshness()
+        if stale:
+            logger.error(
+                f"⛔ 微信采集截停: we-mp-rss 数据已过期！\n"
+                f"  最新 pubDate: {stale}\n"
+                f"  可能原因: Playwright 浏览器崩溃（Event loop is closed）/ 微信登录过期\n"
+                f"  修复步骤:\n"
+                f"    1. cd we-mp-rss && docker compose restart\n"
+                f"    2. bash auto_fetch.sh\n"
+                f"    3. 检查 docker compose logs --tail 20 是否有 'Event loop is closed' 错误\n"
+                f"    4. 如果仍有错误，尝试 docker compose down && docker compose up -d"
+            )
+            console.print(
+                f"  [red]⛔ 微信采集截停: RSS 数据已过期 (最新 pubDate: {stale})[/red]\n"
+                f"  [yellow]请检查 we-mp-rss: cd we-mp-rss && docker compose restart && bash auto_fetch.sh[/yellow]"
+            )
+            return []
+
         # 过滤掉没有 mp_id 的账号
         valid_accounts = [
             a for a in enabled_accounts if a.get("mp_id")
@@ -1136,6 +1300,74 @@ class WeChatFetcher(BaseFetcher):
                 return resp.status_code < 500
             except Exception:
                 return False
+
+    async def _check_rss_freshness(self) -> str | None:
+        """检查 we-mp-rss 中最新文章的 pubDate 是否过期（2026-04-16 新增）
+
+        注意：/rss 总览的 pubDate 有缓存问题，不可靠。
+        改为抽样检查 3 个活跃公众号的单独 feed。
+
+        Returns:
+            None: 数据新鲜，正常继续
+            str: 最新 pubDate 字符串（过期时返回，用于报错）
+        """
+        import xml.etree.ElementTree as ET
+        from email.utils import parsedate_to_datetime
+
+        # 抽样 3 个活跃公众号检查
+        accounts = self.wechat_config.get("accounts", [])
+        sample_accounts = [
+            a for a in accounts
+            if a.get("enabled", True) and a.get("mp_id")
+        ][:3]
+
+        if not sample_accounts:
+            return None
+
+        latest_dt = None
+        latest_str = ""
+
+        try:
+            async with httpx.AsyncClient() as client:
+                for acct in sample_accounts:
+                    mp_id = acct["mp_id"]
+                    try:
+                        resp = await client.get(
+                            f"{self.base_url}/feed/{mp_id}.rss", timeout=10
+                        )
+                        if resp.status_code != 200:
+                            continue
+                        root = ET.fromstring(resp.text)
+                        for item in root.iter("item"):
+                            pub_el = item.find("pubDate")
+                            if pub_el is not None and pub_el.text:
+                                try:
+                                    dt = parsedate_to_datetime(pub_el.text)
+                                    if latest_dt is None or dt > latest_dt:
+                                        latest_dt = dt
+                                        latest_str = pub_el.text
+                                except Exception:
+                                    continue
+                    except Exception:
+                        continue
+
+            if latest_dt is None:
+                return None  # 无法解析，不截停
+
+            # 检查是否超过 48 小时
+            now = datetime.now(timezone.utc)
+            if latest_dt.tzinfo is None:
+                latest_dt = latest_dt.replace(
+                    tzinfo=timezone(timedelta(hours=8))
+                )
+            age = now - latest_dt
+            if age > timedelta(hours=48):
+                return latest_str
+
+            return None  # 数据新鲜
+        except Exception as e:
+            logger.warning(f"微信 RSS 时效性检查失败: {e}")
+            return None  # 检查失败不截停，继续采集
 
     async def _fetch_account(self, account: dict) -> list[RawArticle]:
         """采集单个微信公众号（仅保留近 max_entry_age_days 天的条目）
@@ -1482,12 +1714,22 @@ async def _async_run_collector(config: dict, data_dir: Path) -> dict:
         for channel_name, fetcher in fetchers.items():
             progress.update(task, description=f"采集: {channel_name}")
 
-            # RSS 完成后，将失败源注入 Exa 进行兜底
-            if channel_name == "exa" and rss_fetcher.failed_sources:
-                exa_fetcher.fallback_sources = rss_fetcher.failed_sources
-                console.print(
-                    f"  🔄 {len(rss_fetcher.failed_sources)} 个 RSS 失败源将由 Exa 兜底"
-                )
+            # RSS 完成后，将失败源和降级源注入 Exa 进行兜底/永久替代
+            if channel_name == "exa":
+                # 偶发兜底：本次失败的源
+                if rss_fetcher.failed_sources:
+                    exa_fetcher.fallback_sources = rss_fetcher.failed_sources
+                    console.print(
+                        f"  🔄 {len(rss_fetcher.failed_sources)} 个 RSS 失败源将由 Exa 兜底"
+                    )
+                # 永久替代：连续 ≥3 天失败的源
+                if rss_fetcher.degraded_sources:
+                    exa_fetcher.degraded_sources = rss_fetcher.degraded_sources
+                    console.print(
+                        f"  ⚠️ {len(rss_fetcher.degraded_sources)} 个 RSS 源已降级为 Exa 永久替代"
+                    )
+                    for ds in rss_fetcher.degraded_sources:
+                        console.print(f"     → {ds['name']}")
 
             try:
                 articles = await fetcher.fetch()

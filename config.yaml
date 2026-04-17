@@ -120,11 +120,11 @@ collector:
         #   category: "游戏引擎"
         #   language: "en"
 
-        - name: "Game Developer (原 Gamasutra/GDC)"
-          url: "https://www.gamedeveloper.com/rss.xml"
-          category: "游戏行业"
-          language: "en"
-          note: "GDC Vault 相关内容"
+        # Game Developer: Cloudflare 反爬封锁(403)，已降级为 Exa 兜底
+        # - name: "Game Developer (原 Gamasutra/GDC)"
+        #   url: "https://www.gamedeveloper.com/rss.xml"
+        #   category: "游戏行业"
+        #   language: "en"
 
       # ── 1.4 VC/投资视角 ──
       vc_blogs:
@@ -643,19 +643,27 @@ filter:
   # 管道→渠道映射：main(rss/wechat/exa/manual), github(github), twitter(twitter)
   pipeline_quotas:
     main:                               # 📰 主日报管道（rss/wechat/exa/manual）
-      ai_core: 3
+      ai_core: 5
       ai_agent: 10
       ai_video: 5
       ai_gaming: 5
       ai_social: 5
       ai_product: 3
       ai_business: 3
-    github:                             # 🐙 GitHub 管道
-      ai_core: 2
-      ai_agent: 3
-      ai_video: 2
-      ai_gaming: 2
-      ai_social: 2
+    github_trending:                    # 🐙 GitHub 热门趋势（Trending Daily + Weekly）
+      ai_core: 1
+      ai_agent: 2
+      ai_video: 1
+      ai_gaming: 1
+      ai_social: 1
+      ai_product: 1
+      ai_business: 1
+    github_new:                         # 🆕 GitHub 新品发现（Search API + Blog）
+      ai_core: 1
+      ai_agent: 2
+      ai_video: 1
+      ai_gaming: 1
+      ai_social: 1
       ai_product: 1
       ai_business: 1
     twitter:                            # 🐦 Twitter 管道
@@ -669,7 +677,7 @@ filter:
 
   # ── 后备配额（pipeline_quotas 未配置的管道退化为此值） ──
   quota_per_tag:
-    ai_core: 3
+    ai_core: 5
     ai_agent: 10
     ai_video: 5
     ai_gaming: 5
@@ -1274,11 +1282,14 @@ filter:
     # 参考：likes=7 views=489 → heat≈11.9（不过门槛）
     #       likes=140 retweets=42 views=24760 → heat≈513.6（轻松过门槛）
 
-  # ── GitHub 质量控制 ──
-  # 项目先过关键词相关性，再过最低 stars 门槛，最后按 stars 排序竞争配额
-  github_quality:
-    min_stars: 5                        # 最低 stars 门槛（低于此值直接淘汰）
-    # 避免 ★1-2 的低质量/spam 项目在供给不足的标签中凑数入选
+  # ── GitHub 质量控制（两子管道独立门槛，2026-04-16 拆分） ──
+  # trending: 高 stars 门槛，过滤低质量刷榜项目
+  # new: 低 stars 门槛，保护 stars 尚在积累的早期好项目
+  github_trending_quality:
+    min_stars: 100                      # 热门趋势：≥100 stars 才入选
+
+  github_new_quality:
+    min_stars: 30                       # 新品发现：≥30 stars 才入选（早期项目友好）
 
   # ── 冷门保护 ──
   cold_protection:
@@ -1344,8 +1355,11 @@ editor:
   twitter_section:
     title: "Twitter 热门"
     max_items: 10                     # 最多展示条数
-  github_section:
-    title: "GitHub 热门项目"
+  github_trending_section:
+    title: "GitHub 热门趋势"
+    max_items: 10
+  github_new_section:
+    title: "GitHub 新品发现"
     max_items: 10
   opinion_section:
     title: "行业观点"

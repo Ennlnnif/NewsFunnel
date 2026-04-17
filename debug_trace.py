@@ -266,6 +266,10 @@ def gen_pipeline(pipe_name, fn, title, channels):
 
     # 配额表
     qs = stats.get("quota_stats", {}).get(pipe_name, {})
+    # opinion 独立池的配额统计在 quota_stats["opinion"] 中，合并显示
+    opinion_qs = stats.get("quota_stats", {}).get("opinion", {})
+    if opinion_qs and pipe_name == "main":
+        qs = {**qs, **opinion_qs}
     if qs:
         L += ["### 配额", "", "| 板块 | 配额 | 供给 | 入选 |", "|------|------|------|------|"]
         for tag, ts in sorted(qs.items()):

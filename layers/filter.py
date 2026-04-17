@@ -263,6 +263,64 @@ class DedupEngine:
         if self._wechat_history_titles:
             logger.info(f"历史微信标题去重库: {len(self._wechat_history_titles)} 个标题")
 
+    def load_github_seen(self, seen_path: Path):
+        """加载 GitHub 持久化去重库（2026-04-16 新增）
+
+        GitHub Trending 的同一项目会连续多天上榜，72h 滑动窗口会导致
+        周期性"老项目"重新涌入。改用永久去重：已入选过的 GitHub URL 不再重复入选。
+
+        存储格式（dict，含元数据供查阅概览）：
+        {
+            "https://github.com/user/repo": {
+                "title": "user/repo",
+                "first_seen": "2026-04-16",
+                "stars": 18224
+            }
+        }
+        """
+        self._github_seen_path = seen_path
+        self._github_seen_data: dict[str, dict] = {}
+        self._github_seen_urls: set[str] = set()
+        if seen_path.exists():
+            try:
+                raw = json.loads(seen_path.read_text(encoding="utf-8"))
+                # 兼容旧格式（纯 URL 列表）
+                if isinstance(raw, list):
+                    self._github_seen_data = {url: {"title": "", "first_seen": "", "stars": 0} for url in raw}
+                else:
+                    self._github_seen_data = raw
+                self._github_seen_urls = set(self._github_seen_data.keys())
+                logger.info(f"GitHub 持久去重库: {len(self._github_seen_urls)} 个项目")
+            except Exception as e:
+                logger.warning(f"加载 GitHub 去重库失败: {e}")
+
+    def save_github_seen(self, new_articles: list[dict], date: str):
+        """将新入选的 GitHub 项目追加到持久去重库（含元数据）"""
+        if not hasattr(self, '_github_seen_path'):
+            return
+        for art in new_articles:
+            url = (art.get("_normalized_url") or art.get("url", "")).rstrip("/")
+            if not url:
+                continue
+            if url not in self._github_seen_data:
+                self._github_seen_data[url] = {
+                    "title": art.get("title", ""),
+                    "first_seen": date,
+                    "stars": (art.get("extra") or {}).get("stars", 0) or 0,
+                }
+        self._github_seen_urls = set(self._github_seen_data.keys())
+        # 按 first_seen 降序排列（最新的在前）
+        sorted_data = dict(sorted(
+            self._github_seen_data.items(),
+            key=lambda x: x[1].get("first_seen", ""),
+            reverse=True,
+        ))
+        self._github_seen_path.write_text(
+            json.dumps(sorted_data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        logger.info(f"GitHub 持久去重库更新: +{len(new_articles)} → 共 {len(self._github_seen_data)} 个项目")
+
     def process(self, articles: list[dict]) -> list[dict]:
         """
         处理所有文章：去重 + 计算覆盖广度。
@@ -280,6 +338,26 @@ class DedupEngine:
             if norm_url:
                 self._url_set.add(norm_url)
             url_deduped.append(art)
+
+        # 第 1.3 遍：GitHub 持久化去重（2026-04-16 新增）
+        # GitHub Trending 同一项目连续上榜多天，72h 窗口会周期性放行"老项目"
+        # 改用永久去重：已入选过 filtered.json 的 GitHub URL 不再重复进入
+        github_seen_urls = getattr(self, '_github_seen_urls', set())
+        if github_seen_urls:
+            github_persistent_deduped = []
+            github_persistent_dup_count = 0
+            for art in url_deduped:
+                if art.get("channel") == "github":
+                    norm_url = art.get("_normalized_url", "") or art.get("url", "")
+                    if norm_url and norm_url.rstrip("/") in github_seen_urls:
+                        art["is_duplicate"] = True
+                        art["_dup_reason"] = f"github_seen:{norm_url[:60]}"
+                        github_persistent_dup_count += 1
+                        continue
+                github_persistent_deduped.append(art)
+            if github_persistent_dup_count:
+                logger.info(f"GitHub 持久去重: 淘汰 {github_persistent_dup_count} 篇已入选过的项目")
+            url_deduped = github_persistent_deduped
 
         # 第 1.5 遍：微信标题历史去重
         # we-mp-rss 对同一篇推文可能生成不同短链URL（不同群发批次），
@@ -624,68 +702,145 @@ class LLMLightFilter:
 
     # ── Prompt 模板（参考标准） ──
 
-    CLASSIFY_PROMPT = """你是一个 AI 行业资讯分类器。
+    CLASSIFY_PROMPT = """你是一个 AI 行业资讯分类器。严格按以下规则判断每篇文章。
 
 我的日报有以下板块：
-- ai_agent: AI Agent 产品与架构（自主完成任务的AI系统）。包括：AI编程助手（Cursor/Copilot/Claude Code）、自动化工作流编排、多Agent协作框架、Agent Memory/OS、AI Agent的游戏化社交应用（如斯坦福AI小镇、扣子养虾）、AI桌面助手、AI创作人格（如Ribbi）
-- ai_video: AI视频与影像生成。包括：AI视频生成模型（Sora/Vidu/Kling）、AI短剧/动画/电影制作、AI图像生成/编辑模型、文生视频/图生视频技术
-- ai_gaming: AI+游戏。包括：AI驱动的游戏新玩法（AI NPC/AI剧情生成/AI UGC关卡编辑器）、AI Native游戏设计、游戏行业应用AI的深度报道。不含：纯游戏行业新闻（营收/人事/评测）
-- ai_social: AI社交产品。特指：融合AI能力的社交软件（AI版微信/XChat/AI推特等）、AI虚拟伴侣/角色扮演社交平台。仅限具体产品，不含宏观社会影响讨论
-- ai_core: AI核心技术。包括：大模型发布/架构创新/训练推理优化/Scaling Law、具身智能/世界模型/Physical AI、学术论文/基准评测/开源模型、模型能力变化（降智/性能对比）。不含：芯片硬件/AI安全合规/纯数学
-- ai_business: AI商业动态。包括：投融资/收购/IPO/营收财报、公司竞争策略（内部信/定价策略/市场份额）、AI产品出海商业化
-- ai_product: 其他AI产品与应用（不属于上面任何垂直板块的AI工具/平台/服务）。包括：AI办公工具、AI搜索、AI硬件产品
-- opinion: 观点与宏观洞察。包括：个人观点/评论/行业展望/思考（非事实性新闻）、AI宏观议题（AI伦理/治理/哲学/就业影响/AI孵化器生态分析等非产品类讨论）
-- not_relevant: 与AI无关
+- ai_agent: AI Agent 具体产品/项目（限事实性新闻）。包括：Agent产品发布/更新/功能上线、Agent项目开源/demo、AI编程助手新版本（Cursor/Copilot/Claude Code功能更新）、Agent游戏化社交产品（斯坦福AI小镇/扣子养虾）。**不含**：Agent开发框架新版本发布（LangChain/CrewAI/Dify等→not_relevant）、Agent基础设施（沙箱/治理/编排/权限管控→not_relevant）、Agent合规风险（企业治理/合规框架→not_relevant）、Agent公司融资（→ai_business）、Agent产品的争议/吐槽/社区声讨（→opinion）
+- ai_video: AI视频/影像 具体产品/工具/作品（限事实性新闻）。包括：AI视频生成模型发布/更新（Sora/Vidu/Kling新版本）、AI短剧/动画作品发布、AI图像生成工具新版本、具体的AI视频制作工具上线。**不含**：AI视频行业趋势分析（→opinion）
+- ai_gaming: AI+游戏 具体产品/项目（限事实性新闻）。包括：AI原生游戏项目发布/demo、AI NPC/AI剧情生成工具上线、AI UGC关卡编辑器产品、AI桌面宠物、AI桌面助手。**不含**：纯游戏行业新闻（营收/人事/评测）、AI游戏行业趋势分析（→opinion）
+- ai_social: AI社交 具体产品（限事实性新闻）。包括：AI社交软件发布/更新（AI版微信/XChat等）、AI虚拟伴侣/角色扮演社交平台上线、AI+传统社交产品的功能结合（如社交App新增AI功能）、AI聊天产品。**不含**：宏观社会影响讨论（→opinion）
+- ai_core: AI核心技术 具体模型/系统发布（限事实性新闻）。包括：大模型发布/开源（GPT-5/Claude/Gemma新版）、具身智能产品发布、世界模型产品或论文。**不含**：模型横评综述/行业报告（→opinion）、芯片硬件（→not_relevant）
+- ai_business: AI商业动态（行业事件）。包括：投融资/收购/IPO/营收财报、公司竞争策略（内部信/定价/市场份额）、AI产品出海商业化数据
+- ai_product: 其他AI产品/工具（限具体产品的事实性新闻）。不属于上面任何垂直板块的AI工具发布/更新。包括：AI办公工具、AI搜索产品、训练框架/推理引擎开源发布、具体的技术突破论文（CVPR/ICLR等顶会）。**不含**：AI工具使用体验/评测文（→opinion）
+- opinion: 观点、解读与分析（所有非事实性内容的兜底板块）。包括：个人观点/评论/行业展望、产品解读/科普/教程/使用体验、社区争议/声讨/抄袭事件、行业趋势报告/综述、AI宏观议题（伦理/治理/哲学/就业影响）
+- not_relevant: 与AI无关。也包括以下主题（日报不关注）：Agent开发框架更新、企业级安全防护SaaS/B端Agent工具、Agent安全分析/风险解读、Agent架构科普/教程、Agent可靠性研究/基准测试、AI安全合规政策、展会相关（逛展指南/招展推广/参展广告/门票福利）、AI硬件产品、Agent基础设施（沙箱/治理/编排/权限管控等底层架构新闻）、Agent合规风险（企业Agent治理/合规框架/风险评估）
+
+**核心原则：除 ai_business 和 opinion 外，其他板块只收"某个具体产品/项目/模型做了什么事"的事实性新闻。解读、分析、教程、争议、观点一律归 opinion。**
 
 对每篇文章判断：
 1. relevant: 是否与AI相关（true/false）
 2. primary_tag: 文章核心事件最匹配的**单个**板块
 3. quality: 信息质量分（0-3整数）
    3 = 重大：产品首发/技术突破/独家深度/重要开源/重大融资收购
-   2 = 常规：行业报告/公司动态/产品更新/技术解析/有价值的新闻/垂直领域周报盘点（聚焦单一主题且有数据）
-   1 = 边缘：消费评测/泛科技/轻度相关
-   0 = 噪声：活动推广/榜单征集/申报/投票/招聘/广告/纯拼接型聚合新闻/与AI无实质关系
-   注意：标题含"申报""征集""报名""投票"等行动号召词 → 一律quality=0；标题用分号或竖线拼接≥3条无关新闻的聚合晚报/早报/速递 → quality=0；垂直领域周报（如"AI短剧周报"）聚焦单一主题的除外
+   2 = 常规：产品更新/公司动态/有价值新闻/垂直周报（聚焦单一主题且有数据）
+   1 = 边缘：消费评测/泛科技/轻度相关/纯拼接型聚合新闻（晚报/早报/速递等，⚡TUNABLE：聚合新闻评级可能根据最终输出效果再调整）
+   0 = 噪声：活动推广/榜单征集/申报/投票/招聘/广告/与AI无实质关系
 4. reason: 一句话判断理由
 
-分类规则：
-- 收购/融资/IPO/营收 → ai_business（即使涉及Agent/视频公司，商业事件优先）
-- 公司内部备忘录/竞争策略/定价 → ai_business
-- 个人观点/评论/展望/AI宏观议题/AI哲学/AI伦理/生态分析 → opinion
-- AI社交软件（XChat/AI微信等）→ ai_social
-- Agent架构/Agent产品/Agent游戏化应用/AI创作人格 → ai_agent
-- "某公司发布了某AI产品" → 按产品类型归入对应垂直板块
-- 通用大模型发布（如GPT-5/Claude新版）→ ai_core
-- 如果不确定归入哪个垂直领域 → ai_product
-- quality=0 的文章必须标为 not_relevant
+### quality=0 强制规则（必须严格执行）
+
+以下情况一律 quality=0，relevant=false，primary_tag=not_relevant：
+- 标题含"申报""征集""报名""投票""评选启动"等行动号召词
+- [Sponsor] 开头的赞助内容
+- 纯游戏行业新闻（营收/人事/评测/攻略），无AI相关性
+
+### 聚合拼接新闻规则（⚡TUNABLE：此规则可能根据最终输出效果再调整）
+
+以下聚合类文章 quality=1，relevant=true，primary_tag 由你根据内容判断（可能是 opinion/ai_core/ai_agent 等任意板块）：
+- 标题用分号（；/;）或竖线（丨/|）拼接 ≥2 条不相关新闻的聚合文章
+  判断方法：如果分号/竖线两侧讲的是不同公司/不同事件 → 聚合拼接
+  ✅ 例外：垂直领域周报聚焦单一主题（如"AI短剧周报"）→ q=2（常规）
+- 标题含"晚报""早报""速递""快讯""一句话看"且拼接多条新闻
+
+### 正确分类示例
+
+产品/项目新闻 → 对应垂直板块：
+✅ "Claude Code重构上线Routines，7x24小时云端自动执行" → ai_agent, q=3（具体功能发布）
+✅ "Anthropic's Claude Managed Agents gives enterprises a new way to deploy AI" → ai_agent, q=3（新产品发布）
+✅ "Vidu Q3参考生升级：特效音效场景全备好" → ai_video, q=3（模型新版本发布）
+✅ "北大开源3D生成神器UltraShape" → ai_core, q=3（具体模型开源）
+✅ "Chrome上线AI Skills功能" → ai_product, q=2（产品功能更新）
+✅ "Discord新增AI聊天助手功能" → ai_social, q=2（传统社交+AI功能结合）
+✅ "PyTorch 3.0发布，推理速度提升2倍" → ai_product, q=3（训练框架发布→ai_product）
+
+解读/观点/分析 → opinion：
+✅ "一文带你看懂Harness Engineering到底是个啥" → opinion, q=2（平台解读科普）
+✅ "5分钟缓存清零，集体声讨Claude" → opinion, q=2（社区争议/用户吐槽）
+✅ "Hermes Agent抄袭中国团队代码实锤" → opinion, q=2（伦理争议事件）
+
+商业动态 → ai_business：
+✅ "李开复、陆奇已重金入场Harness" → ai_business, q=3（投资人入场=商业事件）
+✅ "德塔智能连续三轮融资超亿元" → ai_business, q=3（融资）
+
+日报不关注 → not_relevant：
+❌ "LangChain v0.4发布，新增多Agent编排" → not_relevant（Agent开发框架更新）
+❌ "OpenClaw爆火暴露12类致命隐患" → not_relevant（Agent安全分析）
+❌ "Databricks用更强模型测试Agent性能" → not_relevant（Agent可靠性基准测试）
+❌ "SAP推出企业级Agent安全防护平台" → not_relevant（企业安全SaaS）
+❌ "#PAGC2026逛展指南-AI剧篇" → not_relevant（展会逛展指南）
+❌ "AI+万物，PAGC AI参展企业初曝光，找AI产品找融资就来5月展会" → not_relevant（展会招展推广）
+❌ "欧盟AI安全法案正式生效" → not_relevant（AI安全合规政策）
+❌ "Meta发布AI眼镜二代" → not_relevant（AI硬件产品）
+❌ "OpenAI Agents SDK新增沙箱执行和治理能力" → not_relevant（Agent基础设施/治理）
+❌ "企业Agent治理框架：如何管控AI代理的权限与合规" → not_relevant（Agent合规风险）
+❌ "AI lowered the cost of building software. Enterprise governance is catching up" → not_relevant（Agent合规风险）
+
+聚合拼接 → q=1（⚡TUNABLE）：
+⚠️ "斯坦福报告：美国AI投资为中国23倍；Q1豆包...；OpenAI指控..." → ai_core, q=1（分号拼接聚合，主题偏AI核心）
+⚠️ "群核科技港交所上市；源升智能融资丨扬帆晚报" → ai_business, q=1（晚报聚合，主题偏商业动态）
+
+噪声 → not_relevant, q=0：
+❌ "[Sponsor] WorkOS FGA" → q=0（赞助）
+
+### 分类优先级规则
+
+1. **先判断是"事实性新闻"还是"解读/分析/观点"**：
+   - 事实性（某产品发了/开源了/上线了/融资了）→ 归入对应板块
+   - 非事实性（解读/科普/教程/评测/争议/观点/展会导览）→ opinion
+2. 收购/融资/IPO/营收/投资人入场 → ai_business
+3. 通用大模型发布（GPT-5/Claude新版/Gemma）→ ai_core
+4. 不确定归哪个垂直板块的AI产品 → ai_product
+5. quality=0 → 必须标为 not_relevant（注意：聚合拼接新闻是 q=1 不是 q=0）
+6. **同一事件多篇报道**：如果列表中有多篇文章讲的是同一件事（同一产品发布/同一收购/同一技术突破），只保留质量最高的那篇（quality最高、摘要最详细），其余标为 not_relevant，并在 dup_of 字段写入保留文章的 id（用于覆盖广度回填）。
+
+### quality 打分可信度说明
+
+quality 基于标题 + 摘要（最多300字）打分，**不读全文**。打分要务实：
+- **标题夸张但摘要不具体** → quality 降一档（如标题"史上最强"但摘要无数据 → q=2不是3）
+- **纯英文短标题看不出深度** → 参考摘要内容判断，摘要也不具体则 q=2
+- **标题清晰说明了"首发/开源/重大突破"** → q=3是合理的，不要因为没读全文而刻意压低
+- **摘要透露的信息优先于标题**：标题含AI关键词但摘要说的是无关事件，按摘要判断（如"龙虾从屏幕爬出"→摘要说"讯飞Claw全家桶登场"→按摘要分类为ai_agent）
+
+### rescue 候选说明（仅用于 rescue 模式时参考）
+
+以下文章未能命中AI关键词，但摘要或背景可能与AI相关：
+- 国内AI产品名（讯飞/Claw/Kimi/豆包/通义/文心等）可能在摘要而非标题中出现
+- 大公司（谷歌/微软/苹果等）发布的AI功能，标题可能只写产品名不写AI
 
 输出 JSON（仅输出 JSON，不要输出其他内容）：
 [
   {"id": "xxx", "relevant": true, "primary_tag": "ai_agent", "quality": 3, "reason": "一句话原因"},
   {"id": "yyy", "relevant": false, "primary_tag": "not_relevant", "quality": 0, "reason": "与AI无关"},
+  {"id": "zzz", "relevant": false, "primary_tag": "not_relevant", "quality": 0, "reason": "与xxx报道同一事件，xxx摘要更详细", "dup_of": "xxx"},
   ...
 ]
 
 文章列表：
 """
 
-    RESCUE_PROMPT = """你是一个 AI 资讯相关性判断器。
+    RESCUE_PROMPT = """你是一个 AI 资讯相关性判断器。以下文章没有命中AI关键词，但可能与AI领域间接相关。
 
 我高度关注以下具体领域：
-- ai_agent: AI Agent产品/架构、AI编程助手、自动化工作流、Agent游戏化社交（AI小镇/养虾）、AI创作人格
+- ai_agent: AI Agent产品、AI编程助手、自动化工作流、Agent游戏化社交（AI小镇/养虾）、AI创作人格。不含Agent基础设施（沙箱/治理/编排）和Agent合规风险
 - ai_video: AI视频/图像生成模型、AI短剧/动画
 - ai_gaming: AI+游戏新玩法、AI Native游戏设计、AI NPC/AI剧情生成
 - ai_social: AI社交产品（AI微信/XChat）、AI虚拟伴侣社交平台
-- ai_core: 通用大模型、训练推理、架构创新、具身智能/世界模型
+- ai_core: 通用大模型、训练推理、架构创新、具身智能/世界模型、Physical AI
 - ai_business: AI公司融资/收购/IPO/营收/竞争策略
 - ai_product: 其他AI产品/应用
+- opinion: AI相关的观点/评论/行业展望/宏观议题（伦理/治理/就业影响）
 
-以下文章没有命中AI关键词，但可能与上述领域相关。
-请识别确实与上述领域核心相关的文章，并给出主标签。
+判断规则：
+- **只选与上述领域明确相关的文章**，泛泛提到科技公司但核心不是AI的不选
+- quality 打分规则同 classify（0-3，聚合拼接/征集/推广 → 0）
+- quality=0 的不要输出（直接跳过）
 
-**严格标准：只选明确相关的，泛泛提到科技公司但与AI无直接关系的不选。**
+✅ 应该捞回: "Google's AI watermarking system SynthID reverse-engineered" → ai_core（AI水印系统安全事件）
+✅ 应该捞回: "Gemini Robotics-ER 1.6: Powering real-world robotics tasks" → ai_core（具身智能产品发布）
+❌ 不该捞回: "Google reports strong quarterly earnings" → 非AI核心，不捞
+❌ 不该捞回: "TikTok全球MAU突破20亿丨一句话看出海新鲜事" → 聚合拼接，quality=0
 
-输出 JSON（仅输出 JSON，只输出 relevant=true 的）：
+输出 JSON（仅输出 JSON，只输出 relevant=true 且 quality≥1 的）：
 [{"id": "xxx", "relevant": true, "primary_tag": "ai_agent", "quality": 3, "reason": "..."}]
 
 文章标题列表：
@@ -704,6 +859,11 @@ class LLMLightFilter:
         "数据中心", "data center", "GPU",
         "机器人", "robot", "自动驾驶", "autonomous",
         "OpenAI", "Anthropic", "DeepSeek", "Claude", "GPT",
+        # 国内AI产品和新兴Agent产品（标题不含AI关键词但内容相关）
+        "讯飞", "科大讯飞", "Manus", "Lovable", "Cursor", "Copilot",
+        "Gemini", "Grok", "Perplexity", "Mistral", "Cohere",
+        "智谱", "月之暗面", "Kimi", "通义", "豆包", "文心",
+        "Harness", "Hermes", "Notion",
     ]
 
     def __init__(self, config: dict, data_dir: Path | None = None):
@@ -742,6 +902,8 @@ class LLMLightFilter:
             return
 
         export = {
+            "classify_prompt": self.CLASSIFY_PROMPT.strip(),
+            "rescue_prompt": self.RESCUE_PROMPT.strip(),
             "classify_candidates": [
                 {
                     "id": _stable_id("c", a),
@@ -749,6 +911,7 @@ class LLMLightFilter:
                     "summary_clean": (a.get("summary_clean", "") or "")[:300],
                     "source_name": a.get("source_name", ""),
                     "channel": a.get("channel", ""),
+                    "url": a.get("url", ""),
                     "keyword_tags": a.get("_relevance_tags", []),
                 }
                 for a in classify_candidates
@@ -757,6 +920,7 @@ class LLMLightFilter:
                 {
                     "id": _stable_id("r", a),
                     "title": a.get("title", ""),
+                    "summary_clean": (a.get("summary_clean", "") or "")[:200],
                     "source_name": a.get("source_name", ""),
                     "channel": a.get("channel", ""),
                 }
@@ -769,9 +933,43 @@ class LLMLightFilter:
             json.dumps(export, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+        # ── 同时生成 results 模板（id 预填，分类字段待填）──
+        # 防止手写 id 导致不匹配
+        template = {
+            "classify": [
+                {
+                    "id": _stable_id("c", a),
+                    "title": a.get("title", "")[:50],
+                    "relevant": "__TODO__",
+                    "primary_tag": "__TODO__",
+                    "quality": "__TODO__",
+                    "reason": "__TODO__",
+                }
+                for a in classify_candidates
+            ],
+            "rescue": [
+                {
+                    "id": _stable_id("r", a),
+                    "title": a.get("title", "")[:50],
+                    "relevant": "__TODO__",
+                    "primary_tag": "__TODO__",
+                    "quality": "__TODO__",
+                    "reason": "__TODO__",
+                }
+                for a in rescue_candidates
+            ],
+        }
+        template_path = self._data_dir / "llm_filter_results_template.json"
+        template_path.write_text(
+            json.dumps(template, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
         console.print(f"  📤 已导出待分类文章: {export_path}")
+        console.print(f"  📋 已生成结果模板: {template_path}")
         console.print(f"     分类候选: {len(classify_candidates)} 篇, 捞漏候选: {len(rescue_candidates)} 篇")
-        console.print("     请让 CodeBuddy 读取此文件并生成 llm_filter_results.json")
+        console.print("     请基于模板填写分类结果，保存为 llm_filter_results.json")
 
     def classify(self, keyword_passed: list[dict],
                  valid_tags: set[str]) -> list[dict]:
@@ -779,6 +977,11 @@ class LLMLightFilter:
 
         从 llm_filter_results.json 的 "classify" 字段读取 CodeBuddy 的分类结果。
         为每篇文章设置 primary_tag（覆盖关键词打的多标签）。
+
+        LLM 去重覆盖回填（2026-04-16 新增）：
+          当 LLM 标记某篇为"与另一篇重复"（dup_of 字段），
+          将被踢文章的渠道/源信息累加到保留文章的覆盖广度上，
+          使 Step 4 评分能反映 LLM 识别出的语义级重复覆盖。
 
         Returns:
             分类后的通过列表（不相关的文章已移除）。
@@ -791,8 +994,16 @@ class LLMLightFilter:
             result_map[item.get("id", "")] = item
 
         # 构建 id → article 映射（使用稳定哈希ID）
+        id_to_article: dict[str, dict] = {}
+        for art in keyword_passed:
+            id_to_article[_stable_id("c", art)] = art
+
+        # ── 第一阶段：正常分类 ──
         classified = []
         removed_count = 0
+        # 记录 LLM 去重踢掉的文章：{被踢文章id: (被踢文章, 保留文章id)}
+        llm_dup_removed: list[tuple[dict, str]] = []
+
         for art in keyword_passed:
             aid = _stable_id("c", art)
             result = result_map.get(aid)
@@ -810,7 +1021,13 @@ class LLMLightFilter:
                 art["_llm_classified"] = "not_relevant"
                 art["_llm_classify_reason"] = result.get("reason", "")
                 removed_count += 1
-                logger.info(f"  分类踢掉: {art.get('title', '')[:40]} — {result.get('reason', '')}")
+                # 检查是否为 LLM 事件去重（有 dup_of 字段）
+                dup_of = result.get("dup_of", "")
+                if dup_of:
+                    llm_dup_removed.append((art, dup_of))
+                    logger.info(f"  分类踢掉(dup_of={dup_of}): {art.get('title', '')[:40]}")
+                else:
+                    logger.info(f"  分类踢掉: {art.get('title', '')[:40]} — {result.get('reason', '')}")
                 continue
 
             # LLM 判定相关，设置主标签
@@ -826,6 +1043,10 @@ class LLMLightFilter:
                 art["_llm_classified"] = "not_relevant"
                 art["_llm_classify_reason"] = result.get("reason", "")
                 removed_count += 1
+                # quality=0 也可能带 dup_of
+                dup_of = result.get("dup_of", "")
+                if dup_of:
+                    llm_dup_removed.append((art, dup_of))
                 logger.info(f"  分类踢掉(q={quality}): {art.get('title', '')[:40]}")
                 continue
 
@@ -848,8 +1069,50 @@ class LLMLightFilter:
             art["_llm_classify_reason"] = result.get("reason", "")
             classified.append(art)
 
+        # ── 第二阶段：LLM 去重覆盖回填 ──
+        # 被 LLM 标记为 dup_of 的文章，将其渠道/源信息累加到保留文章的覆盖广度上
+        backfill_count = 0
+        for removed_art, target_id in llm_dup_removed:
+            target_art = id_to_article.get(target_id)
+            if not target_art:
+                continue
+            # 累加覆盖广度
+            removed_channel = removed_art.get("channel", "")
+            removed_source = removed_art.get("source_name", "")
+            target_art["coverage_count"] = target_art.get("coverage_count", 1) + 1
+            # 检查是否新增了渠道
+            existing_channels = set()
+            existing_channels.add(target_art.get("channel", ""))
+            # 用 _llm_dup_channels 追踪所有已合并的渠道
+            llm_channels = set(target_art.get("_llm_dup_channels", []))
+            llm_channels.add(target_art.get("channel", ""))
+            llm_channels.add(removed_channel)
+            target_art["_llm_dup_channels"] = list(llm_channels)
+            target_art["_coverage_channels"] = max(
+                target_art.get("_coverage_channels", 1), len(llm_channels)
+            )
+            # 追踪所有已合并的源
+            llm_sources = set(target_art.get("_llm_dup_sources", []))
+            llm_sources.add(target_art.get("source_name", ""))
+            llm_sources.add(removed_source)
+            target_art["_llm_dup_sources"] = list(llm_sources)
+            target_art["_coverage_sources"] = max(
+                target_art.get("_coverage_sources", 1), len(llm_sources)
+            )
+            backfill_count += 1
+            logger.info(
+                f"  覆盖回填: {removed_art.get('title', '')[:30]}({removed_channel}/{removed_source}) "
+                f"→ {target_art.get('title', '')[:30]} "
+                f"(coverage={target_art['coverage_count']}, "
+                f"channels={target_art['_coverage_channels']}, "
+                f"sources={target_art['_coverage_sources']})"
+            )
+
         if removed_count > 0:
-            console.print(f"  ✅ Step 3b 分类: 踢掉 {removed_count} 篇不相关，保留 {len(classified)} 篇")
+            console.print(
+                f"  ✅ Step 3b 分类: 踢掉 {removed_count} 篇不相关，保留 {len(classified)} 篇"
+                + (f"，覆盖回填 {backfill_count} 篇" if backfill_count > 0 else "")
+            )
         else:
             console.print(f"  ✅ Step 3b 分类: {len(classified)} 篇全部相关")
 
@@ -884,6 +1147,11 @@ class LLMLightFilter:
                 quality = item.get("quality", 1)
                 # quality=0 强制跳过
                 if quality == 0:
+                    continue
+                # dup_of 跳过：与另一篇是同一事件的重复报道
+                dup_of = item.get("dup_of", "")
+                if dup_of:
+                    logger.info(f"  捞漏跳过(dup_of={dup_of}): {art.get('title', '')[:40]}")
                     continue
                 if primary and primary in valid_tags:
                     art["_relevance_tags"] = [primary]
@@ -923,12 +1191,15 @@ class LLMLightFilter:
             keyword_rejected: list[dict],
             valid_tags: set[str]) -> tuple[list[dict], list[dict]]:
         """执行完整 LLM 分类+捞漏流程"""
-        # 计算捞漏候选
+        # 计算捞漏候选：标题 OR 摘要中含触发词
         trigger_lower = [n.lower() for n in self.LOOSE_TRIGGER_NAMES]
         maybe_relevant = [
             a for a in keyword_rejected
             if a.get("channel", "") in ("rss", "wechat", "exa")
-            and any(t in a.get("title", "").lower() for t in trigger_lower)
+            and any(
+                t in (a.get("title", "") + " " + (a.get("summary_clean", "") or "")).lower()
+                for t in trigger_lower
+            )
         ]
 
         if not self._results:
@@ -1450,7 +1721,9 @@ def _select_by_tag_quota(
                 generic_en = {'Agent', 'Model', 'Data', 'Code', 'Studio', 'Lab', 'Pro',
                               'Chat', 'The', 'New', 'For', 'How', 'What', 'Why',
                               'AI Agent', 'Google', 'Microsoft', 'Meta', 'Apple',
-                              'Amazon', 'OpenAI'}  # 大公司名太通用
+                              'Amazon', 'OpenAI', 'Anthropic', 'Claude', 'Gemini',
+                              'DeepMind', 'NVIDIA', 'Samsung', 'Hugging Face',
+                              'ByteDance', 'Tencent', 'Baidu'}
                 generic_cn = {'大模型', '人工智能', '开源', '发布', '全球', '技术',
                               '产品', '公司', '中国', '美国', '市场', '行业'}
                 common_en -= generic_en
@@ -1489,11 +1762,32 @@ def _select_by_tag_quota(
 
 
 # 管道 → 渠道映射
+# GitHub 拆分为两个子管道（2026-04-16）：
+#   github_trending: Trending Daily + Weekly（热门趋势）
+#   github_new: Search API + Blog（新品发现）
+# 分流依据：source_name 前缀
 PIPELINE_CHANNELS = {
     "main": {"rss", "wechat", "exa", "manual"},
-    "github": {"github"},
+    "github_trending": {"github"},  # 实际分流在 _split_github_subpipes 中
+    "github_new": {"github"},       # 实际分流在 _split_github_subpipes 中
     "twitter": {"twitter"},
 }
+
+# GitHub 子管道分流：source_name 前缀 → 子管道
+GITHUB_TRENDING_PREFIXES = ("GitHub Trending",)
+GITHUB_NEW_PREFIXES = ("GitHub Search", "GitHub Blog")
+
+
+def _split_github_subpipes(articles: list[dict]) -> tuple[list[dict], list[dict]]:
+    """将 GitHub 渠道文章按 source_name 分流到 trending / new 子管道"""
+    trending, new = [], []
+    for art in articles:
+        src = art.get("source_name", "")
+        if any(src.startswith(p) for p in GITHUB_TRENDING_PREFIXES):
+            trending.append(art)
+        else:
+            new.append(art)
+    return trending, new
 
 
 def apply_filter(
@@ -1503,35 +1797,21 @@ def apply_filter(
     default_quota: int = 5,
     min_articles_warning: int = 3,
     twitter_min_heat: float = 30.0,
-    github_min_stars: int = 5,
+    github_trending_min_stars: int = 100,
+    github_new_min_stars: int = 30,
     opinion_max_items: int = 3,
 ) -> tuple[list[dict], dict]:
     """
-    三管道独立配额制过滤 + 观点板块分流。
+    多管道独立配额制过滤 + 观点板块分流。
 
-    管道结构：
-      main:    rss, wechat, exa, manual（排除 opinion 文章）
-      github:  github
-      twitter: twitter（排除 opinion 文章）
-      opinion: 从 main+twitter 中分流出的 opinion 文章，独立排序选取
+    管道结构（2026-04-16 GitHub 拆分）：
+      main:             rss, wechat, exa, manual（排除 opinion 文章）
+      github_trending:  GitHub Trending Daily + Weekly（热门趋势）
+      github_new:       GitHub Search API + Blog（新品发现）
+      twitter:          twitter（排除 opinion 文章）
+      opinion:          从 main+twitter 中分流出的 opinion 文章，独立排序选取
 
-    观点板块分流（2026-04-14 新增）：
-      content_type == "opinion" 的文章（含 VIP）从 main/twitter 管道移出，
-      进入独立的 opinion 池。排序规则：VIP 优先 > 源权重 > 时效性。
-      固定输出 opinion_max_items 篇。
-
-    Args:
-        articles: 带评分的文章列表
-        pipeline_quotas: 各管道的标签配额配置
-        quota_per_tag: 兼容旧配置
-        default_quota: 未配置标签的默认配额
-        min_articles_warning: 某领域文章数低于此值时标记"低供给"
-        twitter_min_heat: Twitter 推文最低综合热度门槛
-        github_min_stars: GitHub 项目最低 stars 门槛
-        opinion_max_items: 观点板块最多输出条数
-
-    Returns:
-        (articles, quota_stats): 原列表（已修改 filtered_out）+ 配额统计
+    GitHub 两子管道独立评分+配额，防止新品被 trending 高 stars 洗掉。
     """
     fallback_quotas = quota_per_tag or {}
     pipe_quotas = pipeline_quotas or {}
@@ -1550,28 +1830,35 @@ def apply_filter(
                 if not a.get("is_duplicate", False)
                 and a.get("_relevance_priority", "none") != "none"]
 
-    pipe_articles: dict[str, list[dict]] = {p: [] for p in PIPELINE_CHANNELS}
+    # 先收集各渠道文章
+    github_all = []
+    pipe_articles: dict[str, list[dict]] = {
+        "main": [], "github_trending": [], "github_new": [], "twitter": [],
+    }
     for art in eligible:
         ch = art.get("channel", "")
-        assigned = False
-        for pipe_name, channels in PIPELINE_CHANNELS.items():
-            if ch in channels:
-                pipe_articles[pipe_name].append(art)
-                assigned = True
-                break
-        if not assigned:
-            # 未知渠道归入 main
+        if ch == "github":
+            github_all.append(art)
+        elif ch == "twitter":
+            pipe_articles["twitter"].append(art)
+        elif ch in ("rss", "wechat", "exa", "manual"):
+            pipe_articles["main"].append(art)
+        else:
             pipe_articles["main"].append(art)
 
+    # GitHub 分流到两个子管道
+    gh_trending, gh_new = _split_github_subpipes(github_all)
+    pipe_articles["github_trending"] = gh_trending
+    pipe_articles["github_new"] = gh_new
+
     # ── 第 2.5 步：Twitter 管道热度硬门槛 ──
-    # 通过相关性后，还必须达到最低热度才能参与配额竞争
     twitter_before = len(pipe_articles.get("twitter", []))
     twitter_filtered = []
     twitter_heat_rejected = 0
     for art in pipe_articles.get("twitter", []):
         extra = art.get("extra") or {}
         heat = HeatScorer.twitter_heat_score(extra)
-        art["_twitter_heat"] = round(heat, 1)  # 记录热度值，供调试
+        art["_twitter_heat"] = round(heat, 1)
         if heat >= twitter_min_heat:
             twitter_filtered.append(art)
         else:
@@ -1586,31 +1873,32 @@ def apply_filter(
             f"(淘汰 {twitter_heat_rejected} 篇低热度推文, 门槛={twitter_min_heat})"
         )
 
-    # ── 第 2.6 步：GitHub 管道最低 stars 门槛 ──
-    # 避免 ★1-2 的低质量项目在供给不足的标签中凑数入选
-    # 注意：stars=None 表示 API 补充失败，不淘汰（宁可放进来，不能误杀 trending 项目）
-    github_before = len(pipe_articles.get("github", []))
-    github_filtered = []
-    github_stars_rejected = 0
-    for art in pipe_articles.get("github", []):
-        extra = art.get("extra") or {}
-        stars = extra.get("stars")
-        if stars is not None and stars < github_min_stars:
-            art["filtered_out"] = True
-            art["filter_reason"] = "github_low_stars"
-            github_stars_rejected += 1
-        else:
-            github_filtered.append(art)
-    pipe_articles["github"] = github_filtered
+    # ── 第 2.6 步：GitHub 两子管道独立 stars 门槛 ──
+    for pipe_name, min_stars in [
+        ("github_trending", github_trending_min_stars),
+        ("github_new", github_new_min_stars),
+    ]:
+        before = len(pipe_articles.get(pipe_name, []))
+        filtered_list = []
+        rejected = 0
+        for art in pipe_articles.get(pipe_name, []):
+            extra = art.get("extra") or {}
+            stars = extra.get("stars")
+            if stars is not None and stars < min_stars:
+                art["filtered_out"] = True
+                art["filter_reason"] = f"{pipe_name}_low_stars"
+                rejected += 1
+            else:
+                filtered_list.append(art)
+        pipe_articles[pipe_name] = filtered_list
 
-    if github_stars_rejected > 0:
-        logger.info(
-            f"GitHub stars 门槛: {github_before} → {len(github_filtered)} 篇 "
-            f"(淘汰 {github_stars_rejected} 篇低 stars 项目, 门槛={github_min_stars})"
-        )
+        if rejected > 0:
+            logger.info(
+                f"{pipe_name} stars 门槛: {before} → {len(filtered_list)} 篇 "
+                f"(淘汰 {rejected} 篇, 门槛={min_stars})"
+            )
 
     # ── 第 2.7 步：Opinion 文章从 main/twitter 分流到独立观点池 ──
-    # content_type == "opinion" 的文章（含 VIP）不参与原管道配额竞争
     opinion_pool: list[dict] = []
     for pipe_name in ("main", "twitter"):
         remaining = []
@@ -1621,19 +1909,16 @@ def apply_filter(
                 remaining.append(art)
         pipe_articles[pipe_name] = remaining
 
-    # 观点池排序：VIP 优先 → 源权重 → 时效性（score 已包含时效性）
-    # source_weights 从 HeatScorer 已写入 art["score"]，但这里需要显式排序
     opinion_pool.sort(
         key=lambda a: (
-            1 if a.get("_content_type_vip") else 0,  # VIP 优先
-            a.get("score", 0),                        # 综合评分（含时效性+覆盖广度）
+            1 if a.get("_content_type_vip") else 0,
+            a.get("score", 0),
         ),
         reverse=True,
     )
     opinion_selected = opinion_pool[:opinion_max_items]
     opinion_selected_ids = {id(a) for a in opinion_selected}
 
-    # 标记未入选的 opinion 文章
     for art in opinion_pool:
         if id(art) not in opinion_selected_ids:
             art["filtered_out"] = True
@@ -1647,10 +1932,9 @@ def apply_filter(
     # ── 第三步：每个管道独立选取（带跨管道事件去重）──
     all_selected_ids: set[int] = set()
     all_quota_stats: dict[str, dict] = {}
-    cross_pipe_titles: list[str] = []  # 跨管道已入选文章标题
+    cross_pipe_titles: list[str] = []
 
-    for pipe_name in ["main", "github", "twitter"]:
-        # 优先用管道专属配额，退化到全局 quota_per_tag
+    for pipe_name in ["main", "github_trending", "github_new", "twitter"]:
         quotas = pipe_quotas.get(pipe_name, fallback_quotas)
         pipe_eligible = pipe_articles.get(pipe_name, [])
 
@@ -1658,15 +1942,15 @@ def apply_filter(
             pipe_eligible, quotas, default_quota, min_articles_warning,
             cross_pipe_titles=cross_pipe_titles,
         )
-        # 收集本管道入选的标题，供后续管道去重
         for art in pipe_eligible:
             if id(art) in selected_ids:
                 cross_pipe_titles.append(art.get("title", ""))
+                # 标记子管道归属（供 editor 渲染分区）
+                art["_github_subpipe"] = pipe_name
         all_selected_ids |= selected_ids
         all_quota_stats[pipe_name] = quota_stats
 
     # ── 第四步：标记所有文章的 filtered_out ──
-    # 合并 opinion 入选
     all_selected_ids |= opinion_selected_ids
     for art in opinion_selected:
         art["_output_section"] = "opinion"
@@ -1676,7 +1960,7 @@ def apply_filter(
             art["filtered_out"] = False
             art["filter_reason"] = None
         else:
-            if not art.get("filtered_out"):  # 不覆盖已标记的（如 twitter_low_heat）
+            if not art.get("filtered_out"):
                 art["filtered_out"] = True
                 art["filter_reason"] = "quota_exceeded"
 
@@ -1697,6 +1981,90 @@ def apply_filter(
 # ══════════════════════════════════════════
 # 主入口
 # ══════════════════════════════════════════
+
+
+def _generate_llm_results_template(passed: list[dict], today_dir: Path):
+    """从入选文章的真实 URL 生成 llm_results_template.json（2026-04-17 新增）
+
+    解决问题：手写 llm_results.json 时编造假 URL 导致 editor.py 匹配失败。
+    方案：自动从 filtered.json 的入选文章中提取真实 URL + 标题，
+    按 editor.py 的板块 key 分组，预填到模板中。
+    CodeBuddy 只需在 __TODO__ 处填入 summary/keywords/insight，
+    URL 是从源数据复制的，不可能出错。
+
+    模板结构与 llm_results.json 完全一致，填完后直接重命名即可使用。
+    """
+    # editor.py 的板块 key 映射规则
+    section_map: dict[str, list[dict]] = {}
+    for a in passed:
+        tag = a.get("primary_tag_llm", "") or (
+            a.get("relevance_tags", ["unknown"])[0]
+            if a.get("relevance_tags")
+            else "unknown"
+        )
+        sec = a.get("output_section", "")
+        pipe = a.get("github_subpipe", "")
+
+        # 确定板块 key（与 editor.py 一致）
+        if sec == "opinion":
+            key = "opinion"
+        elif sec == "twitter":
+            key = "twitter"
+        elif pipe == "github_trending":
+            key = "github_trending"
+        elif pipe == "github_new":
+            key = "github_new"
+        else:
+            key = tag
+
+        if key not in section_map:
+            section_map[key] = []
+
+        section_map[key].append({
+            "url": a.get("url", ""),
+            "title": a.get("title", "")[:80],
+            "channel": a.get("channel", ""),
+            "summary": "__TODO__",
+            "keywords": [],
+        })
+
+    # 按 editor.py 的固定板块顺序输出
+    ordered_keys = [
+        "ai_agent", "ai_core", "ai_video", "ai_gaming", "ai_social",
+        "ai_business", "ai_product", "opinion", "twitter",
+        "github_trending", "github_new",
+    ]
+
+    template = {}
+    for key in ordered_keys:
+        articles = section_map.get(key, [])
+        template[key] = {
+            "articles": articles,
+            "insight": "__TODO__" if articles else "",
+        }
+
+    # 添加 ordered_keys 中没有的板块
+    for key in section_map:
+        if key not in template:
+            template[key] = {
+                "articles": section_map[key],
+                "insight": "__TODO__",
+            }
+
+    template_path = today_dir / "llm_results_template.json"
+    template_path.write_text(
+        json.dumps(template, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    total = sum(len(s["articles"]) for s in template.values())
+    non_empty = sum(1 for s in template.values() if s["articles"])
+    console.print(
+        f"  📋 已生成 llm_results 模板: {template_path}\n"
+        f"     {total} 篇文章 × {non_empty} 个板块，URL 已从 filtered.json 预填\n"
+        f"     [yellow]请基于模板填写 summary/keywords/insight，保存为 llm_results.json[/yellow]\n"
+        f"     [red]⚠️ 禁止修改 url 字段——editor.py 会校验 URL 必须与 filtered.json 一致[/red]"
+    )
 
 
 def run_filter(date: str | None = None, config: dict | None = None) -> dict:
@@ -1767,6 +2135,10 @@ def run_filter(date: str | None = None, config: dict | None = None) -> dict:
         prev_date = (datetime.strptime(date, "%Y-%m-%d") - timedelta(days=days_back)).strftime("%Y-%m-%d")
         history_files.append(data_dir / prev_date / "filtered.json")
     dedup.load_history(history_files)
+
+    # 加载 GitHub 持久化去重库
+    github_seen_path = data_dir / "github_seen.json"
+    dedup.load_github_seen(github_seen_path)
 
     unique_articles = dedup.process(articles)
     after_dedup = len(unique_articles)
@@ -1873,9 +2245,10 @@ def run_filter(date: str | None = None, config: dict | None = None) -> dict:
         art["score_details"] = {k: round(v, 1) for k, v in details.items()}
 
     # ══ Step 5: Filter ══
-    console.print("\n[bold]Step 5: Filter（三管道独立配额制）[/bold]")
+    console.print("\n[bold]Step 5: Filter（多管道独立配额制）[/bold]")
     twitter_cfg = filter_cfg.get("twitter_quality", {})
-    github_cfg = filter_cfg.get("github_quality", {})
+    gh_trending_cfg = filter_cfg.get("github_trending_quality", {})
+    gh_new_cfg = filter_cfg.get("github_new_quality", {})
     _, quota_stats = apply_filter(
         unique_articles,
         pipeline_quotas=filter_cfg.get("pipeline_quotas"),
@@ -1883,7 +2256,8 @@ def run_filter(date: str | None = None, config: dict | None = None) -> dict:
         default_quota=filter_cfg.get("default_quota", 5),
         min_articles_warning=filter_cfg.get("min_articles_warning", 3),
         twitter_min_heat=twitter_cfg.get("min_heat", 30.0),
-        github_min_stars=github_cfg.get("min_stars", 5),
+        github_trending_min_stars=gh_trending_cfg.get("min_stars", 100),
+        github_new_min_stars=gh_new_cfg.get("min_stars", 30),
         opinion_max_items=filter_cfg.get("opinion_section", {}).get("max_items", 3),
     )
 
@@ -1891,8 +2265,14 @@ def run_filter(date: str | None = None, config: dict | None = None) -> dict:
     console.print(f"  ✅ 配额筛选完成: {after_relevance} → {len(passed)} 篇入选")
 
     # 打印各管道各领域配额使用情况
-    pipe_labels = {"main": "📰 主日报", "github": "🐙 GitHub", "twitter": "🐦 Twitter", "opinion": "💡 行业观点"}
-    for pipe_name in ["main", "github", "twitter", "opinion"]:
+    pipe_labels = {
+        "main": "📰 主日报",
+        "github_trending": "🐙 GitHub 热门趋势",
+        "github_new": "🆕 GitHub 新品发现",
+        "twitter": "🐦 Twitter",
+        "opinion": "💡 行业观点",
+    }
+    for pipe_name in ["main", "github_trending", "github_new", "twitter", "opinion"]:
         pipe_qs = quota_stats.get(pipe_name, {})
         if not pipe_qs:
             continue
@@ -1991,6 +2371,8 @@ def run_filter(date: str | None = None, config: dict | None = None) -> dict:
             out["llm_classify_reason"] = art["_llm_classify_reason"]
         if art.get("_is_aggregate"):
             out["is_aggregate"] = True
+        if art.get("_github_subpipe"):
+            out["github_subpipe"] = art["_github_subpipe"]
         # 移除 content 和原始 summary（太大），保留 summary_clean
         out.pop("content", None)
         out.pop("summary", None)
@@ -2024,6 +2406,17 @@ def run_filter(date: str | None = None, config: dict | None = None) -> dict:
         encoding="utf-8",
     )
     console.print(f"\n[green]💾 已保存: {filtered_path}[/green]")
+
+    # ── 自动生成 llm_results_template.json（2026-04-17 新增）──
+    # 从 filtered.json 的入选文章中提取真实 URL，按板块分组预填模板
+    # 杜绝手写编造 URL 导致 editor.py URL 不匹配的问题
+    _generate_llm_results_template(passed, today_dir)
+
+    # ── 更新 GitHub 持久化去重库 ──
+    new_github_arts = [a for a in passed if a.get("channel") == "github"]
+    if new_github_arts:
+        dedup.save_github_seen(new_github_arts, date)
+        console.print(f"  🐙 GitHub 持久去重库: +{len(new_github_arts)} 个项目")
 
     # ── 打印 Top 文章（按领域分组） ──
     _print_top_articles(passed[:20])

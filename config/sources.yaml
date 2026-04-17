@@ -114,10 +114,11 @@ rss:
       category: "游戏引擎"
       language: "en"
 
-    - name: "Game Developer (原 Gamasutra/GDC)"
-      url: "https://www.gamedeveloper.com/rss.xml"
-      category: "游戏行业"
-      language: "en"
+    # Game Developer: Cloudflare 反爬封锁，已改由 Exa 兜底搜索覆盖
+    # - name: "Game Developer (原 Gamasutra/GDC)"
+    #   url: "https://www.gamedeveloper.com/rss.xml"
+    #   category: "游戏行业"
+    #   language: "en"
       note: "GDC Vault 相关内容"
 
   # ── 1.2c VC/投资视角 ──
@@ -179,7 +180,7 @@ rss:
       language: "en"
 
     - name: "antirez"
-      url: "http://antirez.com/rss"
+      url: "https://antirez.com/rss"
       category: "HN热门博客"
       language: "en"
       note: "Redis作者"
@@ -512,6 +513,11 @@ exa_search:
       search_query: "site:36kr.com 新智元 AI"
       language: "zh"
       note: "无独立 RSS，内容分散在多平台"
+
+    - name: "AIHub"
+      search_query: "site:aihub.cn"
+      language: "zh"
+      note: "RSS已关闭，用Exa定向搜索替代"
 
     - name: "机器之心"
       search_query: "site:jiqizhixin.com"

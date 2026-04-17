@@ -22,7 +22,32 @@
 > **Editor URL 匹配**：2026-04-14，editor.py 的 LLM 结果匹配从顺序索引改为 URL 精确匹配→标题匹配→索引 fallback
 > **Layer3 全文摘要**：2026-04-14，日报摘要基于源文章全文（web_fetch 抓取）生成，不再仅靠标题推测
 > **quality 规则细化**：2026-04-14，榜单征集/申报/投票一律 quality=0；纯拼接型聚合新闻 quality=0，垂直周报除外
-> **设计原则**：每一层都有独立运行时逻辑，层间通过 JSON 文件解耦，支持从任意层重跑。
+> **ai_core 配额扩容**：2026-04-15，主日报 ai_core 配额从 3 提升到 5
+> **事件去重通用词扩充**：2026-04-15，实体去重排除词列表补充 Anthropic/Claude/Gemini/DeepMind/NVIDIA 等 AI 公司名，防止仅因共享公司名误判同一事件
+> **板块定义收敛（产品优先）**：2026-04-15，除 ai_business 和 opinion 外，所有垂直板块限定为"具体产品/项目/模型的事实性新闻"；解读/分析/教程/争议全部归 opinion（兜底板块）；ai_agent 新增排除 B端企业SaaS
+> **CLASSIFY_PROMPT 全面升级**：2026-04-15，新增：① 同事件多报道去重提示（只保留最优一篇）② quality 打分可信度说明（标题摘要不一致时按摘要判断）③ rescue 候选说明（摘要中的产品名优先于标题）
+> **rescue 扫描范围扩展**：2026-04-15，rescue 预过滤从只扫描标题改为同时扫描标题+摘要；触发词补充讯飞/Manus/Lovable/Gemini/Kimi/豆包/通义/文心/Harness/Hermes 等国内外 AI 产品名
+> **Layer3 Prompt 全面升级**：2026-04-15，summary ≤100字（从≤40字放宽）、必须以厂商+产品名作为主语、关键词从2-3个升到3-4个；产品类列核心功能/价值、事件类列核心影响；insight 扩到≤80字，要求回答why/how、揭示因果与影响、可选务实启示
+> **gen_llm_results_skeleton 操作清单**：2026-04-15，脚本输出末尾追加逐篇 web_fetch URL 清单，固化"必须用骨架中的真实URL抓全文"的操作纪律，防止URL手写错位
+> **RSS 失败历史持久化**：2026-04-15，RSSFetcher 新增 rss_fail_history.json，记录连续失败天数；连续≥3天失败的源自动降级为 Exa 永久替代，不再发起 RSS 请求
+> **launchd 替代 crontab**：2026-04-15，macOS 定时任务从 crontab 迁移到 launchd（支持睡眠后补跑），collector 和 wechat auto_fetch 均迁移；两个 plist 配置了完整 PATH（含 nvm node 路径，确保 xreach 可用）
+> **collector load_dotenv**：2026-04-15，collector.py 顶部加 load_dotenv，确保 .env 中的 EXA_API_KEY 等在 launchd 环境中也能正确加载
+> **Twitter 采集修复**：2026-04-15，xreach-cli@0.3.3 已通过 nvm node 全局安装，launchd PATH 含 nvm 路径，Twitter 采集恢复正常（从0篇→81篇）
+> **LLM 去重覆盖回填**：2026-04-16，Step 3b LLM 标记同事件重复（dup_of 字段）时，被踢文章的渠道/源信息回填到保留文章的 coverage_count，使 Step 4 覆盖广度评分反映 LLM 识别的语义级重复
+> **聚合新闻评级调整**：2026-04-16，纯拼接聚合类新闻（晚报/早报/速递）从 quality=0 提升到 quality=1（⚡TUNABLE），primary_tag 由 LLM 判断
+> **Layer3 Prompt 全文阅读**：2026-04-16，四个 Prompt（SECTION/TWITTER/GITHUB/OPINION）新增⚠️全文阅读强制要求（web_fetch 原文后再生成）、所有英文 summary 必须翻译为中文、summary 结构改为"谁+做了什么+影响"、技术细节下沉到 keywords
+> **GitHub 优先读 README**：2026-04-16，GITHUB_PROMPT 新增"优先阅读 README.md 即可，无需逐行读源码"指引，减少工作量
+> **GitHub 持久化去重**：2026-04-16，新增 data/github_seen.json 永久记录已入选 GitHub URL（含 title/first_seen/stars 元数据），替代 72h 滑动窗口防止老项目周期性重新涌入
+> **GitHub 管道拆分**：2026-04-16，单一 github 管道拆分为 github_trending（Trending Daily+Weekly，stars≥100）和 github_new（Search API+Blog，stars≥30），独立评分+配额，防止新品被 trending 高 stars 洗掉
+> **launchd 触发时间调整**：2026-04-16，微信采集从 9:00/21:00 改为 12:00/22:00，ai-daily 从 9:05/21:05 改为 12:05/22:05
+> **板块定义重构（第二轮）**：2026-04-16，ai_agent 剔除开发框架/安全相关→not_relevant；ai_gaming 新增桌面宠物/助手；ai_social 新增传统社交+AI/AI聊天；ai_core 剔除论文和训练框架→ai_product，新增世界模型论文；ai_product 剔除AI硬件→not_relevant；not_relevant 新增明确排除清单
+> **Layer 4 实现**：2026-04-16，archiver.py 实现产品深度分析报告。两种触发方式：①从日报选择产品（--product）②手动输入链接（--url，支持 GitHub/Twitter/Reddit/文章/图片自动识别）。Prompt 来自 report_template.md，10 模块结构（一句话速览→产品概览→投融资→核心功能→技术方案→版本迭代→商业模式→用户策略→竞争格局→产品总结→行业趋势）
+> **报告按产品归档**：2026-04-16，输出路径从 `data/{date}/reports/` 改为 `data/reports/{product_name}/{date}.md`，同一产品多次分析集中存储，方便纵向追踪
+> **飞书迁移预埋**：2026-04-16，报告头部自动包含 YAML front matter（product/date/source_mode/source_url/source_type/tags），为未来批量同步飞书多维表格预留结构化元数据
+> **Layer 3 summary 规范**：2026-04-17，四个 Prompt 统一更新：≤80字、必须出现产品名、不堆砌数字、参考副标题写法、summary 与 keywords 不允许信息重复
+> **防伪 URL 双重防线**：2026-04-17，filter.py 自动生成 llm_results_template.json（URL 从 filtered.json 预填）；editor.py 新增 _validate_llm_urls() 校验，URL 不匹配则报错终止
+> **板块定义第三轮**：2026-04-17，ai_agent 剔除 Agent 基础设施（沙箱/治理/编排）和 Agent 合规风险→not_relevant；rescue() 新增 dup_of 检查防止重复报道被捞回
+> **design 原则**：每一层都有独立运行时逻辑，层间通过 JSON 文件解耦，支持从任意层重跑。
 
 ---
 
@@ -1519,5 +1544,5 @@ rich>=13.7.0              # 美化终端输出
 ---
 
 *初始设计：2026-04-13*
-*最后更新：2026-04-14*
+*最后更新：2026-04-16*
 *Layer 1-3 已实现，Layer 4 待实现*
