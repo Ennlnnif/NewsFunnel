@@ -1372,3 +1372,43 @@ editor:
 archiver:
   raw_retention_days: 30
   knowledge_extraction: true
+
+# ══════════════════════════════════════════
+# Layer 4: 同步配置（syncer）—— 推送到飞书多维表格
+# ══════════════════════════════════════════
+
+syncer:
+  # 飞书表格字段命名（若表头改动，同步修改这里即可，无需改代码）
+  field_names:
+    product_name: "产品名"
+    date: "日期"
+    section: "板块"
+    summary: "一句话简讯"
+    keywords: "关键词"
+    article_url: "原文链接"
+    report_url: "深度报告"
+    stable_id: "稳定ID"
+
+  # 板块单选字段的预设选项（8 个）
+  # Twitter/GitHub 项目按 primary_tag_llm 入 7 大主板块；opinion 独立
+  section_options:
+    - "AI Agent"
+    - "AI视频"
+    - "AI游戏"
+    - "AI社交"
+    - "AI通用技术/模型"
+    - "AI行业动态"
+    - "其他值得关注的产品"
+    - "行业观点"
+
+  # 深度报告 / 日报 md 存储位置：独立 GitHub 仓库
+  # 运行时从 .env 读取 PRODUCT_ANALYSIS_REPO_DIR 等变量，本地 git clone + push
+  # 飞书表格"深度报告"字段写入 GitHub blob URL
+  reports_storage:
+    type: "github"
+    repo_dir_env: "PRODUCT_ANALYSIS_REPO_DIR"
+    owner_env: "PRODUCT_ANALYSIS_OWNER"
+    repo_env: "PRODUCT_ANALYSIS_REPO"
+    branch_env: "PRODUCT_ANALYSIS_BRANCH"
+    # 单个 md 文件大小上限（MB），超过则跳过上传（预留，当前未强制）
+    max_size_mb: 20
