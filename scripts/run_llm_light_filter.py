@@ -121,8 +121,6 @@ rescue_decisions = [
      "reason": "AI研究趋势，Meta等机构印证"},
     {"pattern": "谷歌实锤ai越乖", "tags": ["ai_core"],
      "reason": "AI安全/对齐重要发现"},
-    {"pattern": "中国具身屠榜", "tags": ["ai_core"],
-     "reason": "具身智能重大进展"},
     {"pattern": "米哈游刘伟", "extra": "ai时代焦虑", "tags": ["ai_gaming"],
      "reason": "游戏行业领袖谈AI影响"},
     {"pattern": "阿里搞了款ai原生", "tags": ["ai_gaming"],
