@@ -1,57 +1,21 @@
-# AI Daily News — 四层架构设计文档
+# NewsFunnel — 四层架构设计文档
 
-> **项目更名**：`ai-daily` → `ai-daily-news`
-> **架构更新**：2026-04-13，从原来的"配置层+采集层+AI层"三层伪架构，合并为真正的四层流水线。
-> **Layer 1 完成**：2026-04-13，collector.py 已实现全部 6 种 Fetcher，集成测试通过。
-> **评分架构更新**：2026-04-13，三渠道独立评分 + 独立板块输出（RSS/微信、GitHub、Twitter 彻底分离）
-> **评分维度优化**：2026-04-13，主日报管道移除"互动数据"假维度，重分配为四维度（时效3+覆盖3+多标签1.5+内容类型）
-> **LLM 轻筛引入**：2026-04-13，方案 C — 关键词主力 + LLM 去噪/捞漏，Prompt 聚焦具体关注领域
-> **Layer 3 完成**：2026-04-14，editor.py 已实现完整工作流：LLM 结果加载 → 三管道渲染 → Markdown 输出
-> **Summary Prompt 优化**：2026-04-14，强制结构公式 [主体]+[动作]+[结果]、≤40字、禁止重复/渲染、正反示例
-> **GitHub 通行证移除**：2026-04-14，GitHub Search API 扩展后需关键词/LLM 验证相关性，不再自动通过
-> **三管道独立配额**：2026-04-14，pipeline_quotas 替代旧的 quota_per_tag，main/github/twitter 各自独立配额
-> **质量控制增强**：2026-04-14，新增 Twitter 综合热度门槛（min_heat）和 GitHub 最低 stars 门槛（min_stars）
-> **冷门保护机制**：2026-04-14，优质源/核心标签的低热度文章受保护，降低通过阈值
-> **行业观点板块**：2026-04-14，opinion 文章从 main/twitter 分流到独立板块，不再降权而是独立排序（VIP>评分），固定 3 篇
-> **LLM ID 稳定化**：2026-04-14，classify/rescue 的文章 ID 从顺序编号改为基于标题的 sha256 哈希，消除重跑时 ID 漂移
-> **单标签分类**：2026-04-14，LLM classify 去掉 secondary_tags，每篇文章只保留一个 primary_tag
-> **质量分维度**：2026-04-14，新增 quality 0-3 评分维度替代多标签加成，拉大文章区分度（重大3/常规2/边缘1/噪声0）
-> **板块定义重构**：2026-04-14，ai_social 限定为 AI 社交产品、ai_agent 扩展（游戏化社交/创作人格）、opinion 扩展为观点+宏观洞察、ai_gaming 新增 AI Native 玩法
-> **ai_agent 配额扩容**：2026-04-14，主日报 ai_agent 配额从 5 提升到 10
-> **事件级去重**：2026-04-14，配额选择阶段新增事件级去重（标题相似度>0.5 OR 共享核心实体），同管道+跨管道均生效
-> **Editor URL 匹配**：2026-04-14，editor.py 的 LLM 结果匹配从顺序索引改为 URL 精确匹配→标题匹配→索引 fallback
-> **Layer3 全文摘要**：2026-04-14，日报摘要基于源文章全文（web_fetch 抓取）生成，不再仅靠标题推测
-> **quality 规则细化**：2026-04-14，榜单征集/申报/投票一律 quality=0；纯拼接型聚合新闻 quality=0，垂直周报除外
-> **ai_core 配额扩容**：2026-04-15，主日报 ai_core 配额从 3 提升到 5
-> **事件去重通用词扩充**：2026-04-15，实体去重排除词列表补充 Anthropic/Claude/Gemini/DeepMind/NVIDIA 等 AI 公司名，防止仅因共享公司名误判同一事件
-> **板块定义收敛（产品优先）**：2026-04-15，除 ai_business 和 opinion 外，所有垂直板块限定为"具体产品/项目/模型的事实性新闻"；解读/分析/教程/争议全部归 opinion（兜底板块）；ai_agent 新增排除 B端企业SaaS
-> **CLASSIFY_PROMPT 全面升级**：2026-04-15，新增：① 同事件多报道去重提示（只保留最优一篇）② quality 打分可信度说明（标题摘要不一致时按摘要判断）③ rescue 候选说明（摘要中的产品名优先于标题）
-> **rescue 扫描范围扩展**：2026-04-15，rescue 预过滤从只扫描标题改为同时扫描标题+摘要；触发词补充讯飞/Manus/Lovable/Gemini/Kimi/豆包/通义/文心/Harness/Hermes 等国内外 AI 产品名
-> **Layer3 Prompt 全面升级**：2026-04-15，summary ≤100字（从≤40字放宽）、必须以厂商+产品名作为主语、关键词从2-3个升到3-4个；产品类列核心功能/价值、事件类列核心影响；insight 扩到≤80字，要求回答why/how、揭示因果与影响、可选务实启示
-> **gen_llm_results_skeleton 操作清单**：2026-04-15，脚本输出末尾追加逐篇 web_fetch URL 清单，固化"必须用骨架中的真实URL抓全文"的操作纪律，防止URL手写错位
-> **RSS 失败历史持久化**：2026-04-15，RSSFetcher 新增 rss_fail_history.json，记录连续失败天数；连续≥3天失败的源自动降级为 Exa 永久替代，不再发起 RSS 请求
-> **launchd 替代 crontab**：2026-04-15，macOS 定时任务从 crontab 迁移到 launchd（支持睡眠后补跑），collector 和 wechat auto_fetch 均迁移；两个 plist 配置了完整 PATH（含 nvm node 路径，确保 xreach 可用）
-> **collector load_dotenv**：2026-04-15，collector.py 顶部加 load_dotenv，确保 .env 中的 EXA_API_KEY 等在 launchd 环境中也能正确加载
-> **Twitter 采集修复**：2026-04-15，xreach-cli@0.3.3 已通过 nvm node 全局安装，launchd PATH 含 nvm 路径，Twitter 采集恢复正常（从0篇→81篇）
-> **LLM 去重覆盖回填**：2026-04-16，Step 3b LLM 标记同事件重复（dup_of 字段）时，被踢文章的渠道/源信息回填到保留文章的 coverage_count，使 Step 4 覆盖广度评分反映 LLM 识别的语义级重复
-> **聚合新闻评级调整**：2026-04-16，纯拼接聚合类新闻（晚报/早报/速递）从 quality=0 提升到 quality=1（⚡TUNABLE），primary_tag 由 LLM 判断
-> **Layer3 Prompt 全文阅读**：2026-04-16，四个 Prompt（SECTION/TWITTER/GITHUB/OPINION）新增⚠️全文阅读强制要求（web_fetch 原文后再生成）、所有英文 summary 必须翻译为中文、summary 结构改为"谁+做了什么+影响"、技术细节下沉到 keywords
-> **GitHub 优先读 README**：2026-04-16，GITHUB_PROMPT 新增"优先阅读 README.md 即可，无需逐行读源码"指引，减少工作量
-> **GitHub 持久化去重**：2026-04-16，新增 data/github_seen.json 永久记录已入选 GitHub URL（含 title/first_seen/stars 元数据），替代 72h 滑动窗口防止老项目周期性重新涌入
-> **GitHub 管道拆分**：2026-04-16，单一 github 管道拆分为 github_trending（Trending Daily+Weekly，stars≥100）和 github_new（Search API+Blog，stars≥30），独立评分+配额，防止新品被 trending 高 stars 洗掉
-> **launchd 触发时间调整**：2026-04-16，微信采集从 9:00/21:00 改为 12:00/22:00，ai-daily 从 9:05/21:05 改为 12:05/22:05
-> **板块定义重构（第二轮）**：2026-04-16，ai_agent 剔除开发框架/安全相关→not_relevant；ai_gaming 新增桌面宠物/助手；ai_social 新增传统社交+AI/AI聊天；ai_core 剔除论文和训练框架→ai_product，新增世界模型论文；ai_product 剔除AI硬件→not_relevant；not_relevant 新增明确排除清单
-> **Layer 4 实现**：2026-04-16，archiver.py 实现产品深度分析报告。两种触发方式：①从日报选择产品（--product）②手动输入链接（--url，支持 GitHub/Twitter/Reddit/文章/图片自动识别）。Prompt 来自 report_template.md，10 模块结构（一句话速览→产品概览→投融资→核心功能→技术方案→版本迭代→商业模式→用户策略→竞争格局→产品总结→行业趋势）
-> **报告按产品归档**：2026-04-16，输出路径从 `data/{date}/reports/` 改为 `data/reports/{product_name}/{date}.md`，同一产品多次分析集中存储，方便纵向追踪
-> **飞书迁移预埋**：2026-04-16，报告头部自动包含 YAML front matter（product/date/source_mode/source_url/source_type/tags），为未来批量同步飞书多维表格预留结构化元数据
-> **Layer 3 summary 规范**：2026-04-17，四个 Prompt 统一更新：≤80字、必须出现产品名、不堆砌数字、参考副标题写法、summary 与 keywords 不允许信息重复
-> **防伪 URL 双重防线**：2026-04-17，filter.py 自动生成 llm_results_template.json（URL 从 filtered.json 预填）；editor.py 新增 _validate_llm_urls() 校验，URL 不匹配则报错终止
-> **板块定义第三轮**：2026-04-17，ai_agent 剔除 Agent 基础设施（沙箱/治理/编排）和 Agent 合规风险→not_relevant；rescue() 新增 dup_of 检查防止重复报道被捞回
-> **板块定义第四轮**：2026-04-17，TTS/语音模型从 ai_core→ai_video，世界模型从 ai_core→ai_gaming（按应用场景归属）
-> **Bug 修复×3**：2026-04-17，①_generate_llm_results_template 字段名不一致（读 `output_section` 改为 `_output_section`）②Twitter 文章识别改用 `channel=="twitter"` ③`_github_subpipe` 仅标记 GitHub 文章
-> **模板增强**：2026-04-17，llm_results_template 新增 _excerpt/MUST_FETCH 标记 + _tag_source/_priority（keyword_fallback=low）；llm_filter_results_template 新增标题聚类（同事件排一起）
-> **classify fallback**：2026-04-17，LLM 分类缺失时从关键词标签补 _primary_tag_llm，标记 _tag_source="keyword_fallback"
-> **design 原则**：每一层都有独立运行时逻辑，层间通过 JSON 文件解耦，支持从任意层重跑。
+> **项目名**：NewsFunnel（代码仓库：`ai-daily` / 历史名 `ai-daily-news`）
+> **定位**：个人 AI 日报系统 —— 自动聚合多渠道信息源，经筛选、编辑后生成每日 AI / 游戏行业资讯日报 + 按需生成产品深度分析报告。
+
+## 版本里程碑
+
+| 里程碑 | 日期 | 标志性事件 |
+|---|---|---|
+| 架构定型 | 2026-04-13 | 从三层伪架构合并为真正的四层流水线；Layer 1 全部 6 种 Fetcher 完成 |
+| Layer 3 完成 | 2026-04-14 | editor.py 完整工作流；summary 规范成文；LLM 工作统一由 CodeBuddy 完成 |
+| Layer 4 完成 | 2026-04-16 | archiver.py 实现产品深度分析报告；10 模块结构；按产品归档 |
+| 板块定义收敛 | 2026-04-18 | 板块第 5 轮收敛；summary 字数统一 15-80 字；Layer 2 权威来源指向修正 |
+| Syncer 上线 | 2026-04-19 | Layer 4 新增 syncer.py；飞书多维表格索引 + GitHub 独立仓库存深度报告/日报 md |
+| 开源化脱敏 | 2026-04-19 | 代码/文档全面移除个人凭证与硬编码路径；.env.example 为开源用户提供配置模板；run.sh 自动探测 Python 3.10+ |
+
+> **演进史 / 中间形态 / 已废弃方案** 请看 [`docs/history/`](./history/README.md)
+> **每日变更日志** 位于 `~/.codebuddy/memory/{YYYY-MM-DD}.md`（CodeBuddy Agent 全局记忆目录，跨项目共享，未随仓库提交）
 
 ---
 
@@ -59,9 +23,9 @@
 
 ```
                         ┌────────────────────────────┐
-                        │       pipeline.py           │
-                        │  主调度器：串联 4 层          │
-                        │  支持从任意层开始 / 单层重跑   │
+                        │       pipeline.py          │
+                        │  主调度器：串联 4 层        │
+                        │  支持从任意层开始 / 单层重跑 │
                         └────────────┬───────────────┘
                                      │
          ┌───────────┬───────────────┼───────────────┬───────────┐
@@ -74,13 +38,13 @@
    └────┬─────┘└────┬─────┘  └──────┬───────┘ └────┬─────┘└────┬────┘
         │           │               │              │           │
         ▼           ▼               ▼              ▼           │
-   raw.json   filtered.json   daily.md      archived.json  │
-        │           ▲               ▲              │           │
-        └───────────┘               │              │           │
-                    └───────────────┘              │           │
-                                    └──────────────┘           │
-                                         ▲                     │
-                                         └─────────────────────┘
+   raw.json   filtered.json   daily.md     reports/{product}/   │
+        │           ▲               ▲         {date}.md         │
+        └───────────┘               │              │            │
+                    └───────────────┘              │            │
+                                    └──────────────┘            │
+                                         ▲                      │
+                                         └──────────────────────┘
                                          (manual_input 可插入任意层)
 ```
 
@@ -96,78 +60,100 @@
   └──────┬──────┘
          ▼
   ┌─────────────┐     → data/{date}/filtered.json
-  │  Layer 2    │     → data/{date}/llm_filter_input.json（CodeBuddy 轻筛候选）
-  │  筛选       │        去重 + 相关性评分 + LLM 去噪/捞漏 + 重要性过滤
+  │  Layer 2    │     → data/{date}/llm_filter_input.json
+  │  筛选       │     → data/{date}/llm_filter_results.json
+  │             │     → data/{date}/llm_results_template.json
+  │             │        去重 + 相关性评分 + LLM 去噪/捞漏 + 重要性过滤
   └──────┬──────┘
          ▼
-  ┌─────────────┐     → data/{date}/llm_results.json（CodeBuddy 预生成）
+  ┌─────────────┐     → data/{date}/llm_results.json (CodeBuddy 生成)
   │  Layer 3    │     → data/{date}/daily.md
-  │  编辑       │        LLM 摘要加载 + 三管道渲染 + Markdown 日报
+  │  编辑       │        全文抓取 + LLM 摘要/关键词/洞察 + 多板块渲染
   └──────┬──────┘
          ▼
-  ┌─────────────┐
-  │  Layer 4    │     → data/{date}/archived.json
-  │  归档       │     → knowledge_base/
-  └─────────────┘        知识沉淀 + 长期存储
+  ┌─────────────┐     → data/reports/{product}/{date}.md
+  │  Layer 4    │     → knowledge_base/（预埋）
+  │  归档       │        按产品触发深度分析报告（10 模块结构）
+  └─────────────┘
 ```
+
+### 设计原则
+
+- **层间解耦**：每层只读取上一层的 JSON 文件，不直接调用上层函数
+- **JSON 为层间契约**：可调试、可手动编辑、可断点续跑
+- **幂等性**：同一层对同一 date 多次运行结果一致
+- **渠道并行**：RSS/微信/Exa、GitHub、Twitter 三条管道在 Layer 2/3 全程独立
 
 ---
 
 ## 二、项目目录结构
 
 ```
-ai-daily-news/
-├── config.yaml              # 全局配置（信息源、筛选规则、输出偏好）
-├── pipeline.py              # 主调度器：串联 4 层，支持从任意层开始
-├── diagnose_layer1.py       # Layer 1 诊断脚本
+ai-daily/（NewsFunnel）
+├── config.yaml                     # 全局配置（信息源、筛选规则、输出偏好）
+├── pipeline.py                     # 主调度器：串联 4 层，支持从任意层开始
 ├── layers/
 │   ├── __init__.py
-│   ├── collector.py         # Layer 1: 收集
-│   ├── filter.py            # Layer 2: 筛选
-│   └── editor.py            # Layer 3: 编辑
-├── scripts/
-│   └── run_llm_light_filter.py  # CodeBuddy 轻筛重跑脚本
+│   ├── collector.py                # Layer 1: 收集（6 种 Fetcher）
+│   ├── filter.py                   # Layer 2: 筛选（去重+评分+LLM 轻筛+配额）
+│   ├── editor.py                   # Layer 3: 编辑（LLM 结果加载+多板块渲染）
+│   ├── archiver.py                 # Layer 4: 产品深度分析报告
+│   └── report_template.md          # Layer 4: REPORT_PROMPT 模板
 ├── config/
-│   └── sources.yaml         # 旧版信息源配置（已迁移至 config.yaml）
-├── data/                    # 运行时数据（按日期组织）
-│   └── 2026-04-13/
-│       ├── raw.json             # Layer 1 输出 / Layer 2 输入
-│       ├── llm_filter_input.json # Layer 2 导出的 CodeBuddy 轻筛候选
-│       ├── filtered.json        # Layer 2 输出 / Layer 3 输入
-│       ├── filtered_backup.json # Layer 2 筛选前备份
-│       ├── llm_results.json     # CodeBuddy 预生成的 LLM 摘要/关键词/洞察
-│       ├── daily.md             # Layer 3 输出：Markdown 日报
-│       └── archived.json       # Layer 4 归档记录
-├── knowledge_base/          # Layer 4 沉淀的知识（跨日期持久化）
-├── manual_input/            # 人工添加的文章（任何时候丢进来）
+│   └── sources.yaml                # 旧版信息源配置（已迁移至 config.yaml，保留作参考）
+├── scripts/
+│   ├── gen_llm_results_skeleton.py # LLM 结果骨架生成（含 web_fetch 清单）
+│   └── run_llm_light_filter.py     # LLM 轻筛重跑脚本
+├── data/                           # 运行时产物与调试文件（gitignore）
+│   │                               # 仅作为本地测试/验证/debug 中间产物，不是必须输出
+│   ├── {date}/                     # 按日期组织
+│   │   ├── raw.json                # Layer 1 输出
+│   │   ├── filtered.json           # Layer 2 输出
+│   │   ├── llm_filter_input.json   # LLM 分类候选（稳定哈希 ID）
+│   │   ├── llm_filter_results.json # LLM 分类结果（tag+quality）
+│   │   ├── llm_results_template.json # Layer 3 URL 预填模板（防伪）
+│   │   ├── llm_results.json        # Layer 3 摘要/关键词/洞察
+│   │   ├── daily.md                # 最终日报
+│   │   └── debug/                  # 可选调试产物（_collect_debug.py / layer2_debug.md 等）
+│   ├── reports/{product}/{date}.md # Layer 4 产品分析报告
+│   └── github_seen.json            # GitHub 持久化去重记录
+├── knowledge_base/                 # Layer 4 沉淀的知识（跨日期持久化，预埋）
+├── manual_input/                   # 人工添加的文章（随时丢入）
 ├── docs/
-│   ├── architecture.md      # 本文档
-│   └── layer2-design.md     # 旧版 Layer 2 设计（已弃用，仅供参考）
+│   ├── architecture.md             # 本文（当前最新设计）
+│   ├── user-guide.md               # 跑测 SOP / 对话框模板
+│   ├── layer2-design.md            # 旧版 Layer 2 设计（归档参考）
+│   ├── history/                    # 演进史 / 中间形态 / 已废弃方案
+│   │   ├── README.md               # 演进时间线 + 6 个关键里程碑
+│   │   ├── layer1-evolution.md
+│   │   ├── layer2-evolution.md
+│   │   ├── layer3-evolution.md
+│   │   └── deprecated.md
+│   └── image/                      # 文档图片
+│
+│   # 注：每日变更日志不在仓库内，位于 ~/.codebuddy/memory/{YYYY-MM-DD}.md
+│   #     （CodeBuddy Agent 全局记忆目录，跨项目共享）
+├── AGENTS.md                       # Agent 行为契约（硬约束边界）
+├── README.md                       # 项目介绍 / 快速开始
 ├── requirements.txt
 ├── .env.example
-├── .gitignore
-└── README.md
+└── .gitignore
 ```
 
 ---
 
 ## 三、各层详细设计
 
-### 3.1 Layer 1: 收集（collector.py）✅ 已实现
+### 3.1 Layer 1: 收集（collector.py）
 
 > **职责**：从所有渠道拉取原始信息，统一格式，输出 `raw.json`
 > **原则**：只管"拿到"，不做任何筛选判断
-> **状态**：✅ 全部 6 种 Fetcher 已实现，集成测试通过（2026-04-13）
-> **最近更新**：2026-04-13，新增无日期文章过滤、RSS→Exa 迁移、GitHub Trending 日期增强与 API 补充
+> **状态**：✅ 已实现
 
-#### 输入
+#### 输入 / 输出
 
-- `config.yaml` 中的信息源配置（RSS / GitHub / Exa / Twitter / 微信）
-- `manual_input/` 目录中的手工文章
-
-#### 输出
-
-- `data/{date}/raw.json` — 当日所有采集到的文章列表
+- **输入**：`config.yaml` 中的信息源配置 + `manual_input/` 目录
+- **输出**：`data/{date}/raw.json`（今日所有采集到的文章列表）
 
 #### 统一文章数据模型
 
@@ -192,135 +178,45 @@ class RawArticle:
     extra: Optional[dict] = None         # 渠道特有字段（默认空 dict）
 ```
 
-#### 各渠道 Fetcher 实现详情
+#### 6 种 Fetcher
 
-| Fetcher | 库/工具 | 技术方案 | 实现状态 |
-|---------|---------|---------|---------|
-| **RSSFetcher** | `feedparser` + `httpx` | httpx 异步获取 → feedparser 解析；ETag/Last-Modified 条件请求；编码异常处理；按 config 中的 `rss.news/ai_companies/game_industry/vc_blogs/hn_blogs` 五类遍历；**无 pubDate 的 entry 直接跳过**（避免历史全量灌入） | ✅ 已实现 |
-| **GitHubFetcher** | `feedparser` + GitHub API | Trending RSS + **Search API** + Blog RSS；Trending 走 RSS 解析逻辑 + GitHub API 补充元数据；**Search API 按 7 个兴趣领域定向搜索近 90 天新项目**（`extra.type = "search"`，`extra.search_query_tag` 自动标记领域）；**采集层内 URL 级去重**（Trending/Search 重叠项目只保留一条）；Blog 走标准 RSS | ✅ 已实现 |
-| **ExaFetcher** | `exa-py` SDK | `exa.search_and_contents()`，按 `published_after` 过滤近 24h；定向站点搜索 + 通用关键词搜索；每条查询限 5 条；**新增 4 个 RSS 失效源的定向搜索兜底**（a16z / Rachel by the Bay / Dwarkesh Patel / Unreal Engine） | ✅ 已实现 |
-| **TwitterFetcher** | `xreach` CLI（agent-reach skill） | 搜索模式（`xreach search`）+ 用户时间线（`xreach tweets @user`）；`--json` 输出；`asyncio.create_subprocess_exec` 异步调用；自动过滤转发；无需 Twitter 账号密码或 API Key | ✅ 已实现 |
-| **WeChatFetcher** | `we-mp-rss` 本地 HTTP API | 复用 RSSFetcher，`localhost:8001/feed/{mp_id}.rss`；采集前检查服务可用性；依赖 we-mp-rss 本地服务运行 | ✅ 已实现 |
-| **ManualFetcher** | 读本地文件 | 扫描 `manual_input/` 目录；支持 JSON/MD/TXT 三种格式；处理完成后移入 `.processed/` 子目录 | ✅ 已实现 |
+| Fetcher | 库 / 工具 | 技术方案 |
+|---|---|---|
+| **RSSFetcher** | `feedparser` + `httpx` | httpx 异步获取 → feedparser 解析；ETag/Last-Modified 条件请求；编码异常处理；无 pubDate 的 entry 直接跳过（避免历史全量灌入） |
+| **GitHubFetcher** | `feedparser` + GitHub API | Trending RSS + Search API + Blog RSS；Trending 走 RSS 解析逻辑 + GitHub API 补充 `repo_created_at` / `stars` / `repo_language`；Search API 按 7 个兴趣领域定向搜索近 90 天新项目；采集层内 URL 级去重 |
+| **ExaFetcher** | `exa-py` SDK | `exa.search_and_contents()`，按 `published_after` 过滤近 24h；定向站点搜索 + 通用关键词搜索；每条查询限 5 条；兜底 4 个 RSS 失效源（a16z / Rachel by the Bay / Dwarkesh Patel / Unreal Engine） |
+| **TwitterFetcher** | `xreach` CLI | 搜索模式（`xreach search`）+ 用户时间线（`xreach tweets @user`）；`--json` 输出；`asyncio.create_subprocess_exec` 异步调用；无需账号 / API Key |
+| **WeChatFetcher** | `we-mp-rss` 本地 HTTP API | 复用 RSSFetcher 逻辑，通过 `localhost:8001/feed/{mp_id}.rss` 访问本地服务 |
+| **ManualFetcher** | 读本地文件 | 扫描 `manual_input/`，支持 JSON/MD/TXT 三种格式；处理完成后移入 `.processed/` 子目录 |
 
-#### 2026-04-13 变更记录
+#### GitHub 管道细分（2026-04-16 起）
 
-##### 变更 1：无日期文章跳过（RSSFetcher）
+GitHub 管道拆分为两条子管道，独立评分和配额：
 
-- **问题**：Paul Graham 等 RSS 源不含 `pubDate`，导致历史全部文章灌入 raw.json
-- **方案**：`_fetch_single_rss()` 中，当 `published_at is None` 且 `max_age_days > 0` 时，直接跳过该条目
-- **影响范围**：仅影响 RSSFetcher，不影响 GitHubFetcher（独立方法）
+| 子管道 | 来源 | 门槛 |
+|---|---|---|
+| `github_trending` | Trending Daily + Weekly | stars ≥ 100 |
+| `github_new` | Search API + Blog | stars ≥ 30 |
 
-##### 变更 2：4 个失效 RSS 源迁移到 Exa 定向搜索
+#### RSS 失败自愈
 
-- **问题**：a16z / Unreal Engine / Rachel by the Bay / Dwarkesh Patel 的 RSS 长期返回 403/404
-- **方案**：在 `config.yaml` 中注释掉这 4 个 RSS 源，新增 Exa `sites` 定向搜索条目
-- **兜底逻辑**：ExaFetcher 的 `fallback_sources` 机制仍然保留，可自动为其他临时失败的 RSS 源兜底
+- `rss_fail_history.json` 记录每个源连续失败天数
+- 连续 ≥ 3 天失败的源自动降级为 Exa 永久替代，不再发起 RSS 请求
 
-##### 变更 3：GitHub Trending 日期增强
-
-- **问题**：第三方 Trending RSS 的 entry 没有日期字段，导致"今日文章=0"
-- **方案**（两步增强）：
-  1. **榜单捕捉日期**：用 feed 级别的 `published_parsed` 作为 `published_at`，在 `extra.date_type` 中标记为 `"trending_capture"`（区分于项目本身的发布日期）
-  2. **GitHub API 补充**：对 `_type == "trending"` 的条目，并发调用 `GET /repos/{owner}/{repo}` 补充三个关键字段：
-     - `extra.repo_created_at` — 仓库创建时间（判断新项目 vs 老项目）
-     - `extra.stars` — 当前 star 总数（结合创建时间判断爆发程度）
-     - `extra.repo_language` — 主语言
-  - **API 限速**：无需 Token，60 次/小时；daily trending ≤25 个项目，远低于限速
-  - **性能**：并发请求，14 个项目 ~1-2 秒
-
-##### GitHub Trending extra 字段示例
-
-```json
-{
-  "type": "trending",
-  "period": "daily",
-  "date_type": "trending_capture",
-  "raw_description": "Built by @user1 @user2 ...",
-  "repo_created_at": "2026-01-27T03:53:13Z",
-  "stars": 19716,
-  "repo_language": "Python"
-}
-```
-
-**下游判断规则**（供 Layer 2/3 使用）：
-| 场景 | 判断方式 |
-|------|---------|
-| 新项目爆发 | `repo_created_at` 在 30 天内 + 高 stars |
-| 中期快速增长 | 1~6 个月 + 高 stars |
-| 老项目翻红 | 6 个月以上 + 出现在 daily trending |
-
-##### 设计决策备忘
-
-| 决策 | 结论 | 原因 |
-|------|------|------|
-| 用 `created_at` 还是首个 Release 时间？ | `created_at` | Release 覆盖率低（很多项目无 release）、API 分页限制（100 条截断）、多 1 次 API 调用 |
-| 是否补充 `pushed_at`？ | 不补充 | trending 本身已代表"当前热门"，不需要额外判断活跃度 |
-| GitHub Trending 无日期是否需要修复？ | 用 feed 时间兜底 | 第三方 RSS 服务限制，无法修改源数据；feed 级时间足够准确 |
-
-#### 技术选型总结
-
-| 决策点 | 选型 | 原因 |
-|--------|------|------|
-| HTTP 客户端 | `httpx`（异步） | 原生 async 支持，多源并发采集；50+ 源串行 ~12 分钟，并发 ~1 分钟 |
-| RSS 解析 | `feedparser` | 稳定可靠，兼容 RSS 1.0/2.0 和 Atom |
-| Twitter 采集 | `xreach` CLI（弃用 twikit） | 零配置、无需账号密码、无 Python 版本限制；数据更丰富（含 views/bookmarks/quotes） |
-| Exa 搜索 | `exa-py` SDK | 官方 SDK，支持 `published_after` 过滤，免费额度充足 |
-| 微信公众号 | `we-mp-rss` 本地服务 | 已部署运行，提供标准 RSS/Feed 接口，复用 RSS 解析逻辑 |
-| 进度展示 | `rich` | Progress bar + Spinner，美化终端输出 |
-| 数据模型 | `dataclasses` | 轻量，避免 pydantic 的额外依赖 |
-| 类型注解 | `Optional[T]`（非 `T | None`） | 兼容 Python 3.9+，避免版本限制 |
-
-#### Twitter 采集方案演进
-
-```
-twikit（旧）                    xreach/agent-reach（新）
-─────────────────────           ─────────────────────
-❌ 需要 Twitter 用户名+密码      ✅ 零配置
-❌ 需要 Python 3.10+             ✅ 无 Python 版本限制（CLI）
-❌ Cookie 会过期需重新登录         ✅ 不需要维护
-  likes/retweets/replies         ✅ 额外有 views/bookmarks/quotes
-  pip install twikit             ✅ xreach v0.3.3 已安装
-
-搜索模式: xreach search "query" -n 20 --json
-时间线:   xreach tweets @username -n 10 --json
-
-已知限制: 搜索模式下 user 对象只有 id/restId（无 screenName），
-         代码中用 restId 作为 fallback 用户名。
-```
-
-#### 错误处理
+#### 错误处理 & 并发控制
 
 - 单源 15s 超时，最多重试 2 次（间隔 5s）
 - 连续 5 次失败的源标记 `disabled`，每日凌晨重置
 - 失败不阻塞其他源，记录到日志
-- xreach 命令 30s 超时，JSON 解析失败自动跳过
-
-#### 并发控制
-
-- `run_collector()` 使用 `asyncio.Semaphore(max_concurrent)` 控制并发数（默认 10）
-- 各 Fetcher 独立运行，互不阻塞
-- 采集结果通过 `asyncio.gather()` 汇总
+- `asyncio.Semaphore(max_concurrent)` 控制并发数（默认 10），50+ 源 ~1 分钟
 
 #### 数据存储策略
 
 - `raw.json` 是**今日信息池**，每次运行 Layer 1 **全量覆盖**（非增量追加）
-- 一天只跑一次完整 pipeline，不需要增量合并
-- `raw.json` 属于临时中间产物，**自动清理**：保留最近 3 天，超期删除
-- 清理由 `pipeline.py` 在每次运行时执行，或 Layer 4 archiver 负责
+- 临时中间产物：`raw.json` / `filtered.json` / `llm_*.json` 保留最近 3 天自动清理
+- 长期保留：`daily.md` / `data/reports/` / `knowledge_base/`
 
-```
-data/
-├── 2026-04-13/
-│   ├── raw.json          ← 今日信息池（临时，3 天后自动清理）
-│   ├── filtered.json     ← Layer 2 输出（临时，3 天后自动清理）
-│   ├── llm_results.json  ← CodeBuddy 预生成（临时）
-│   └── daily.md          ← Layer 3 输出（长期保留）
-├── 2026-04-12/
-│   └── ...
-```
-
-#### raw.json 格式
+#### raw.json 示例
 
 ```json
 {
@@ -348,31 +244,21 @@ data/
 
 ---
 
-### 3.2 Layer 2: 筛选（filter.py）✅ 已实现
+### 3.2 Layer 2: 筛选（filter.py）
 
-> **职责**：对 raw.json 去重、相关性筛选、热度评分、过滤，输出高质量的 `filtered.json`
-> **原则**：去噪声、排优先级，但不生成新内容
-> **约束**：规则为主、CodeBuddy 为辅。关键词硬筛是主力通道，CodeBuddy 仅用于边界情况的去噪/捞漏。不可用时自动 fallback 到纯关键词筛选
-> **架构**：三渠道独立管道 — RSS/微信/Exa、GitHub、Twitter 各自独立评分排序，互不干扰
-> **最近更新**：
-> - 2026-04-13：LLM 轻筛（方案 C）；三渠道独立评分体系；双层关键词体系；渠道通行证；覆盖广度增强；主日报移除互动数据假维度
-> - 2026-04-14：GitHub 通行证移除（Search API 扩展后需验证相关性）；三管道独立配额（pipeline_quotas）；Twitter/GitHub 质量控制门槛；冷门保护机制
+> **职责**：对 `raw.json` 去重、相关性筛选、热度评分、过滤，输出高质量的 `filtered.json`
+> **原则**：规则为主 + CodeBuddy 为辅。关键词硬筛是主力，LLM 仅用于边界情况去噪/捞漏；LLM 不可用时自动 fallback 到纯关键词筛选
+> **架构**：三管道独立 —— RSS/微信/Exa、GitHub、Twitter 各自独立评分排序
+> **权威来源**：`CLASSIFY_PROMPT` / `RESCUE_PROMPT` 常量在 `layers/filter.py` 内，**不在** JSON 里
 
-#### 核心设计：两道漏斗
+#### 输入 / 输出
 
-```
-第一道：相关性硬筛（是不是我关注的领域？）
-第二道：热度软排（在关注的领域里，哪些值得看？）
-```
-
-#### 输入
-
-- `data/{date}/raw.json`（Layer 1 输出）
-- `data/{date-1}/filtered.json`、`data/{date-2}/filtered.json`（前几天的去重窗口）
-
-#### 输出
-
-- `data/{date}/filtered.json`
+- **输入**：`data/{date}/raw.json` + `data/{date-1}/filtered.json` / `data/{date-2}/filtered.json`（去重窗口）
+- **输出**：
+  - `data/{date}/filtered.json`（最终入选文章）
+  - `data/{date}/llm_filter_input.json`（LLM 分类候选）
+  - `data/{date}/llm_filter_results.json`（LLM 分类结果）
+  - `data/{date}/llm_results_template.json`（Layer 3 URL 预填模板，防伪第一重防线）
 
 #### 处理流水线
 
@@ -382,7 +268,7 @@ raw.json (~4000+ 篇)
      ▼
 ┌──────────────────┐
 │ Step 1: Normalize│   统一时间格式、清理 HTML、URL 归一化、标题清洗
-│                  │   输入 N 篇 → 输出 N 篇（结构标准化）
+│                  │   N 篇 → N 篇（结构标准化）
 └────────┬─────────┘
          ▼
 ┌──────────────────┐
@@ -393,253 +279,103 @@ raw.json (~4000+ 篇)
          ▼
 ┌───────────────────────┐
 │ Step 3a: Relevance    │   双层关键词匹配（signals + brands）
-│ 关键词硬筛（主力）     │   + 渠道通行证（github/manual 直接通过）
+│ 关键词硬筛（主力）     │   + 渠道通行证（manual 直接通过）
 │                       │   命中标签 → 标记 relevance_tags
-│                       │   → keyword_passed (~200篇)
-│                       │   → keyword_rejected (~3800篇)
+│                       │   → keyword_passed (~200 篇)
+│                       │   → keyword_rejected (~3800 篇)
 └────────┬──────────────┘
          ▼
 ┌───────────────────────┐
-│ Step 3b: LLM 去噪     │   复核 keyword_passed 中的低置信度命中
+│ Step 3b: LLM 去噪     │   CLASSIFY_PROMPT 复核低置信度命中
 │ （关键词假阳性）       │   仅品牌词单词命中 + 非标题命中 → LLM 判断
-│                       │   ❌ "Yi姓DNA分析" → 踢掉
-│                       │   ✅ "Yi-Lightning 新模型" → 保留
+│                       │   同时打 quality 0-3 分 + primary_tag
 └────────┬──────────────┘
          ▼
 ┌───────────────────────┐
-│ Step 3c: LLM 捞漏     │   扫描 keyword_rejected 中的潜在漏网之鱼
-│ （关键词假阴性）       │   batch 发送标题 → LLM 判断是否与
-│                       │   AI核心/AI游戏/AI视频/AI社交/AI Agent
-│                       │   等具体关注领域相关
-│                       │   ✅ 捞回 ~10篇 + 自动打标签
+│ Step 3c: LLM 捞漏     │   RESCUE_PROMPT 扫描被拒文章
+│ （关键词假阴性）       │   预过滤（触发词 loose_trigger_names）缩小范围
+│                       │   识别间接表达的 AI 相关文章
+│                       │   新增 dup_of 检查防止重复报道被捞回
 └────────┬──────────────┘
          ▼
 ┌───────────────────────┐
 │ Step 3.5: Split       │   按渠道分流为三条独立管道
-│                  │   RSS/微信/Exa → 主日报管道
-│                  │   GitHub → GitHub Trending 管道
-│                  │   Twitter → Twitter 热议管道
-└────────┬─────────┘
+│                       │   RSS/微信/Exa/manual → 主日报管道
+│                       │   GitHub → GitHub 管道（分 trending/new 子管道）
+│                       │   Twitter → Twitter 热议管道
+└────────┬──────────────┘
          ├──────────────────────────────────────────┐
          ▼                    ▼                      ▼
 ┌─── 📰 主日报管道 ───┐ ┌─ 🐙 GitHub 管道 ──┐ ┌─ 🐦 Twitter 管道 ─┐
-│ Score: 信号匹配强度  │ │ Score: 项目质量    │ │ Score: 热度排名    │
-│  + 时效性 + 覆盖广度 │ │  stars 相对排名    │ │  likes/RT 排名     │
-│  + 多标签加成        │ │  + 新项目加分      │ │  纯互动量排序      │
-│ Filter: 标签配额制   │ │  + 主题相关性     │ │  相关性由关键词保证 │
-│  pipeline_quotas.main│ │ Filter:           │ │ Filter:            │
-│  ai_core:5 等       │ │  pipeline_quotas   │ │  pipeline_quotas   │
-│                     │ │  .github 按标签    │ │  .twitter 按标签   │
-│                     │ │  min_stars 门槛    │ │  min_heat 门槛     │
-└────────┬────────────┘ └────────┬──────────┘ └────────┬───────────┘
+│ Score: 四维度       │ │ Score: stars      │ │ Score: 热度       │
+│  时效 3 + 覆盖 3    │ │  + 新项目加分     │ │  likes×1          │
+│  + quality 1.5      │ │  + 主题相关性     │ │  + retweets×3     │
+│  + 内容类型调整     │ │ 门槛: min_stars   │ │  + views×0.01     │
+│ Filter:             │ │  trending≥100    │ │ 门槛: min_heat=50 │
+│  pipeline_quotas    │ │  new≥30          │ │                   │
+│  .main              │ │  pipeline_quotas │ │  pipeline_quotas  │
+│                     │ │  .github         │ │  .twitter         │
+│ 分流: opinion →     │ │                  │ │ 分流: opinion →   │
+│  独立观点池         │ │                  │ │  独立观点池       │
+└────────┬────────────┘ └────────┬──────────┘ └────────┬──────────┘
          │                       │                      │
          └───────────────────────┴──────────────────────┘
                                  ▼
-                     filtered.json (~30+ 篇 + ~15 项目 + ~10 推文)
-                     每篇文章带 output_section 字段
+                     filtered.json
+                     每篇文章带 output_section / primary_tag / quality
 ```
 
-#### 2026-04-13 相关性筛选重大改进
+#### 核心机制
 
-##### 改进 1：双层关键词体系（替代旧的单一 keywords 列表）
+##### 双层关键词体系
 
-| 层级 | 说明 | 设计目的 | 示例 |
-|------|------|---------|------|
-| **信号词 (signals)** | 描述领域的通用概念词 | 不随产品更迭过时，**自动覆盖未来新品** | "AI视频生成"、"大模型"、"agent framework" |
-| **品牌词 (brands)** | 具体产品/公司/模型名 | 精确命中已知目标 | "Sora"、"DeepSeek"、"Cursor" |
+| 层级 | 说明 | 示例 |
+|---|---|---|
+| **信号词 (signals)** | 描述领域的通用概念词，自动覆盖未来新品 | "AI 视频生成"、"大模型"、"agent framework" |
+| **品牌词 (brands)** | 具体产品/公司/模型名，精确命中已知目标 | "Sora"、"DeepSeek"、"Cursor" |
 
 - 两层 OR 关系：命中任意一个就算匹配
-- 信号词是主力：一篇讲 "全新AI视频生成工具XXX" 的文章，即使XXX不在品牌词列表里，"AI视频生成" 这个信号词也能捕获它
-- 旧配置中的 `keywords` 字段仍然兼容
+- 英文短词（≤ 4 字符纯 ASCII）用 `\b` 正则词边界，中文词和长英文词用 `in` 子串匹配
+- 预编译所有正则，无运行时性能损耗
 
-**旧方案问题**：关键词全是具体名称（`GPT-4`、`Sora`、`Cursor`），对市场新品无能为力
-**新方案解决**：信号词覆盖领域通用概念，品牌词精确命中已知产品，双管齐下
+##### LLM 轻筛（方案 C）
 
-##### 改进 2：英文短词词边界匹配
+> 详细设计与演进请看 [history/layer2-evolution.md §3](./history/layer2-evolution.md)
 
-| 词长 | 匹配方式 | 原因 |
-|------|---------|------|
-| ≤ 4 字符的纯 ASCII 词 | `\b` 正则词边界 | 避免 "o1" 匹配 "o1签证"、"Yi" 匹配 "Yi姓" |
-| 中文词 / 长英文词 | `in` 子串匹配 | 中文无自然词边界，长词误命中概率低 |
+- **Step 3b 去噪**：`CLASSIFY_PROMPT`（在 `layers/filter.py` 中）对低置信度命中做 batch 复核；同时打 quality 0-3 分 + primary_tag
+- **Step 3c 捞漏**：`RESCUE_PROMPT` 对被拒文章做 batch 标题扫描；预过滤用 `loose_trigger_names`（Sam Altman / 微软 / 英伟达 等）缩小范围
+- **LLM 实现**：CodeBuddy 在对话中完成，不依赖任何外部 API Key
+- **ID 稳定化**：候选 ID 为基于标题的 sha256 哈希（如 `c81c67417`），重跑时不漂移
+- **单标签 + quality**：每篇文章一个 `primary_tag` + quality 0-3 维度（替代旧的"多标签加成"）
 
-预编译所有正则，无运行时性能损耗。
+##### 板块定义（第 5 轮收敛 ✅ 当前）
 
-##### 改进 3：渠道通行证
+| 标签 | 关注领域 | 优先级 | 主日报配额 |
+|---|---|---|---|
+| `ai_core` | AI 核心技术：大模型发布/架构创新/训练推理/开源模型/模型能力变化。**不含**：芯片硬件/AI 安全合规/纯数学/具身智能/Physical AI/人形机器人/自动驾驶 | core | 5 |
+| `ai_agent` | AI Agent 产品与架构：AI 编程助手（Cursor/Copilot/Claude Code/Manus/Harness/Evolver/OpenClaw/CodeFuse NES）、自动化工作流、多 Agent 协作、Agent 游戏化社交、AI 桌面助手；**例外**大厂官方 Agent 运行时重大里程碑（OpenAI Agents SDK / MS agent-framework / Google ADK / Anthropic Harness 的战略级更新 → q=2） | core | 10 |
+| `ai_video` | AI 视频与影像生成：AI 视频生成模型（Sora/Vidu/Kling）、AI 短剧/动画/电影、文生视频、TTS/语音模型 | core | 5 |
+| `ai_gaming` | AI + 游戏：AI NPC、AI 剧情生成、AI UGC 关卡编辑器、AI Native 游戏、**桌面宠物/AI 桌面助手**、世界模型 | core | 5 |
+| `ai_social` | AI 社交产品（仅限具体产品）：融合 AI 的社交软件、AI 虚拟伴侣/角色扮演社交平台 | core | 5 |
+| `ai_product` | 其他 AI 产品与应用（兜底板块）：AI 办公工具、AI 搜索 | supplementary | 3 |
+| `ai_business` | AI 商业动态：投融资/收购/IPO/营收财报、公司竞争策略、AI 产品出海商业化 | supplementary | 3 |
+| `opinion` | 观点与宏观洞察：个人观点/评论/行业展望、AI 宏观议题（伦理/治理/就业影响/孵化器生态等非产品类讨论） | independent | 3（独立池） |
 
-```yaml
-always_pass_channels:
-  # - github   # 已移除：Search API 扩展后需要关键词/LLM 验证相关性
-  - manual     # 手工输入已是人工判断
-```
+> ℹ️ 日报不再收录：具身智能 / Physical AI / 人形机器人 / 自动驾驶类新闻；开源 Agent SDK / 框架的普通小版本更新（LangChain / CrewAI / Dify / AutoGen 等）。
 
-当前仅 **manual** 渠道的文章跳过关键词检查，直接进入评分排序。
-
-**GitHub 通行证移除原因（2026-04-14）**：
-- 初期仅采集 Trending，上榜本身已是社区筛选，通行证合理
-- 现在 GitHub Search API 按 7 个兴趣领域定向搜索，采集范围大幅扩展
-- 搜索结果中可能包含仅名称沾边但实际不相关的项目，需要关键词/LLM 验证
-
-##### 改进 4：覆盖广度评分增强
-
-跨渠道覆盖比同渠道多源更有价值（同一事件 RSS + Twitter + 微信 > 3 个 RSS 源）：
-
-| 条件 | 分数 | 说明 |
-|------|------|------|
-| 3+ 渠道 or 5+ 源 or 6+ 报道 | **3.0** | 重大事件（↑ 从 2.5 提升到 3.0） |
-| **2 渠道** or 4+ 源 or 4+ 报道 | **2.5** | 热点事件（↑ 从 2.0 提升到 2.5） |
-| 3 源 or 3 报道 | 1.5 | 有热度 |
-| 2 源 or 2 报道 | 0.5 | 有一定关注度 |
-| 单源 | 0.0 | 无覆盖加分 |
-
-##### 改进 5：LLM 轻筛 — 方案 C（关键词主力 + LLM 去噪/捞漏）
-
-> **2026-04-13 新增**。解决关键词硬筛的两个结构性短板：假阳性（歧义词误入）和假阴性（间接表达漏掉）。
-> **适用范围**：当前仅用于**主日报管道**（RSS/微信/Exa）。GitHub 预留接口，未来收集范围调整后可启用。Twitter 不需要（关键词搜索结果本身已保证相关性）。
-> **2026-04-14 重大更新**：
-> - **ID 稳定化**：classify/rescue 候选的 ID 从顺序编号（`c0, c1, c2...`）改为基于标题的 sha256 哈希（`c81c67417`），消除 `run_filter` 重跑时的 ID 漂移问题
-> - **单标签分类**：去掉 `secondary_tags`，每篇文章只保留一个 `primary_tag`，降低分类歧义
-> - **quality 0-3 分**：LLM classify 时同步打质量分，替代旧的"多标签加成"评分维度
-> - **板块定义重构**：ai_social 限定为 AI 社交产品、ai_agent 扩展、opinion 扩展为宏观洞察
-
-**LLM classify 输出格式**：
-
-```json
-[
-  {"id": "c81c67417", "relevant": true, "primary_tag": "ai_agent", "quality": 3, "reason": "一句话原因"},
-  {"id": "cfc90a83d", "relevant": false, "primary_tag": "not_relevant", "quality": 0, "reason": "与AI无关"}
-]
-```
-
-**ID 稳定化机制**：
-
-```python
-def _stable_id(prefix: str, art: dict) -> str:
-    """基于标题的稳定哈希ID，不随文章顺序变化"""
-    content = art.get('title', '')
-    return f"{prefix}{hashlib.sha256(content.encode()).hexdigest()[:8]}"
-```
-
-> 解决的问题：`run_filter` 每次执行时去重后文章顺序可能变化，旧的顺序编号（c0, c1...）会导致 `llm_filter_results.json` 和 `llm_filter_input.json` 的 ID 错位。哈希 ID 基于标题内容，无论跑多少次同一篇文章的 ID 永远不变。
-
-##### 改进 6：内容类型分类与观点分流（技术/产品优先，观点类独立板块）
-
-> **2026-04-13 新增**，**2026-04-14 重大调整**：观点文章从"降权竞争"改为"分流到独立板块"。
-> **适用范围**：影响**主日报管道**（rss/wechat/exa）和 **Twitter 管道**。GitHub 不参与。
-
-**问题演进**：
-- 2026-04-13：观点类 -1.0 降权，在同一标签配额里排后面 → 大部分被淘汰
-- 2026-04-14：有价值的行业洞察也被淘汰了 → 改为分流到独立"行业观点"板块
-
-**当前方案（2026-04-14）**：opinion 文章**不降权**，而是从 main/twitter 管道**分流**到独立的观点池：
-
-```
-main/twitter 管道中的文章
-       │
-       ├── content_type != "opinion" → 正常参与标签配额竞争
-       │
-       └── content_type == "opinion" → 分流到观点池
-                                        │
-                                        ▼
-                                   排序：VIP 优先 > 综合评分
-                                   取 top-3 → "行业观点"板块
-```
-
-**内容分类逻辑**（`ContentTypeClassifier`）：
-
-```
-                    标题+摘要
-                        │
-                        ▼
-              ┌─────────────────┐
-              │ 双路信号词匹配    │
-              │ tech_signals ──→ tech_score
-              │ opinion_signals → opinion_score
-              │ 标题命中 ×2 权重  │
-              └────────┬────────┘
-                       ▼
-         ┌───── 分类判断（技术优先）─────┐
-         │                              │
-    tech_score ≥ 2                opinion_score ≥ 2
-    且 ≥ opinion_score            且 > tech_score + 1
-         │                              │
-         ▼                              ▼
-   "tech_product"                  "opinion"
-   技术/产品发布                    观点/评论文
-         │                              │
-         │                         VIP 检查
-         │                     ┌────┴────┐
-         │                     ▼         ▼
-         │               VIP 作者    普通作者
-         │               不降权       降权 -1.0
-         ▼
-   加分 +0.5                    其他 → "news" (不调整)
-```
-
-| 类型 | 评分调整 | 处理方式 | 信号词示例 |
-|------|---------|---------|-----------|
-| `tech_product` | **+0.5** | 在原标签板块正常竞争 | "发布""开源""推出""架构""训练""API""benchmark" |
-| `opinion` | **+0.0** | **分流到独立"行业观点"板块**，不参与原标签配额 | "认为""演讲""焦虑""失业""吗？""为什么" |
-| `news` | **+0.0** | 在原标签板块正常竞争 | 其他 |
-
-**观点板块排序规则**：VIP 作者优先 → 综合评分（含时效性+覆盖广度）→ 取 top-3
-
-**VIP 作者机制**：
-
-VIP 作者的 opinion 文章在观点板块中**排序优先**（VIP > 非VIP），但**只出现在观点板块**，不双重曝光到原标签板块。
-
-```yaml
-# config.yaml → filter.content_type
-vip_authors:               # 这些人的观点文章不降权
-  - "Sam Altman"
-  - "Matthew Ball"          # 用户特别提到
-  - "Andrej Karpathy"
-  - "Yann LeCun"
-  - "Ben Thompson"          # Stratechery
-  - "Simon Willison"
-  - ...
-
-vip_sources:               # 这些源的观点文章不降权
-  - "OpenAI Blog"
-  - "Anthropic"
-  - "Google DeepMind"
-  - "a16z Blog"
-```
-
-**实证效果（2026-04-13 数据）**：
-
-| 分类 | 全部主日报文章 | 入选文章 | 说明 |
-|------|-------------|---------|------|
-| tech_product | 77 篇（46%） | **18 篇**（75%） | 技术/产品类在配额竞争中优势明显 |
-| opinion | 10 篇（6%） | **2 篇**（8%） | 观点类被有效控制 |
-| news | 79 篇（48%） | **4 篇**（17%） | 新闻类中性，按热度竞争 |
-
-被正确降权的观点文示例：
-- "AI 会带来大规模失业吗？" → opinion -1.0（泛泛讨论，非核心资讯）
-- "米哈游刘伟演讲：对抗AI时代焦虑" → opinion -1.0（演讲+焦虑类）
-
-被正确加分的技术文示例：
-- "大佬深度解析：Coding Agent 的底层运行逻辑" → tech_product +0.5（虽含"深度解析"但有"底层""逻辑""运行"等技术信号）
-- "Scaling Managed Agents: Decoupling..." → tech_product +0.5（架构类技术文）
-
-##### 改进 7：三管道独立配额体系（pipeline_quotas）
-
-> **2026-04-14 升级**。替代旧的单一 `quota_per_tag`，三个管道各自拥有独立的标签配额。
-
-**旧方案问题**：main/github/twitter 共享同一套 `quota_per_tag`，管道间性质差异大却平等竞争。
-
-**新方案**：`pipeline_quotas` 为每个管道分别配置标签配额，管道间互不干扰：
+##### 三管道独立配额（pipeline_quotas）
 
 ```yaml
 pipeline_quotas:
   main:                    # 📰 主日报管道
-    ai_core: 3
-    ai_agent: 5
+    ai_core: 5
+    ai_agent: 10
     ai_video: 5
     ai_gaming: 5
     ai_social: 5
     ai_product: 3
     ai_business: 3
-  github:                  # 🐙 GitHub 管道（按标签独立竞争）
+  github:                  # 🐙 GitHub 管道
     ai_core: 2
     ai_agent: 3
     ai_video: 2
@@ -657,352 +393,118 @@ pipeline_quotas:
     ai_business: 1
 ```
 
-旧的 `quota_per_tag` 保留作为 fallback：未在 `pipeline_quotas` 中配置的管道退化为此值。
+##### 热度评分
 
-##### 改进 8：Twitter / GitHub 质量控制门槛
+**主日报管道**（rss/wechat/exa/manual）—— 四维度（满分 8）：
 
-> **2026-04-14 新增**。在标签配额竞争之前，先淘汰低质量内容。
+```
+总分 = 时效性(0-3.0) + 覆盖广度(0-3.0) + LLM quality(0-1.5)
+     + 内容类型调整(tech_product:+0.5, opinion:+0.0, news:+0.0)
+     + 优质源 bonus(0-0.5)
+```
 
-| 管道 | 门槛 | 计算公式 | 说明 |
-|------|------|---------|------|
-| **Twitter** | `min_heat: 50` | `likes×1.0 + retweets×3.0 + views×0.01` | 低于 50 的推文直接淘汰，避免冷门推文凑数 |
-| **GitHub** | `min_stars: 5` | 当前 star 总数 | 低于 5 stars 的项目直接淘汰，避免 spam 项目 |
+**覆盖广度评分**（跨渠道覆盖权重最高）：
 
-**参考数值**：
-- likes=7 views=489 → heat≈11.9（不过门槛）
-- likes=140 retweets=42 views=24760 → heat≈513.6（轻松过门槛）
+| 条件 | 分数 |
+|---|---|
+| 3+ 渠道 or 5+ 源 or 6+ 报道 | 3.0 |
+| 2 渠道 or 4+ 源 or 4+ 报道 | 2.5 |
+| 3 源 or 3 报道 | 1.5 |
+| 2 源 or 2 报道 | 0.5 |
+| 单源 | 0.0 |
 
-##### 改进 9：冷门保护机制
+**quality 定义**：
 
-> **2026-04-14 新增**。优质源/核心标签的低热度文章受保护，降低通过阈值。
+| quality | 含义 | 评分加成 | 示例 |
+|---|---|---|---|
+| 3 | 重大 | +1.5 | 产品首发/技术突破/独家深度/重要开源/重大融资收购 |
+| 2 | 常规 | +1.0 | 行业报告/公司动态/产品更新/技术解析/垂直周报 |
+| 1 | 边缘 | +0.5 | 消费评测/泛科技/轻度相关；纯拼接聚合新闻（晚报/早报/速递） |
+| 0 | 噪声 | +0.0 | 活动推广/榜单征集/申报/投票/招聘/广告 |
 
-**问题**：Simon Willison、Lilian Weng 等大牛的文章可能因为发布时间晚导致热度还没起来，在配额竞争中被淘汰。
+**quality=0 强制规则**：
+- 标题含"申报""征集""报名""投票"等行动号召词 → 一律 q=0
+- 垂直领域周报（如"AI 短剧周报"）聚焦单一主题的不受此规则影响
+
+**GitHub / Twitter 管道** —— 保留互动数据维度（stars / likes 有真实数据）。
+
+##### 质量控制门槛
+
+| 管道 | 门槛 | 计算公式 |
+|---|---|---|
+| **Twitter** | `min_heat: 50` | `likes×1.0 + retweets×3.0 + views×0.01` |
+| **GitHub (trending)** | `min_stars: 100` | 当前 star 总数 |
+| **GitHub (new)** | `min_stars: 30` | 当前 star 总数 |
+
+##### 冷门保护机制
+
+优质源 / 核心标签的低热度文章受保护，降低通过阈值：
 
 ```yaml
 cold_protection:
   enabled: true
   threshold_override: 2        # 受保护文章的通过阈值（正常核心是 4）
-  max_protected_per_day: 3     # 每天最多保护 3 篇，防止噪声
+  max_protected_per_day: 3     # 每天最多保护 3 篇
   protected_sources:
     - "Simon Willison"
     - "Lilian Weng"
     - "Jay Alammar"
-  protected_tags:              # 这些标签的文章更值得保护
+  protected_tags:
     - "ai_core"
     - "ai_gaming"
     - "ai_agent"
 ```
 
-##### 改进 10：事件级去重（配额选择阶段）
+##### 事件级去重（配额选择阶段）
 
-> **2026-04-14 新增**。解决同一事件多篇报道同时入选的问题。
-
-**问题**：Step 2 的标题去重（阈值 0.85）无法捕获同一事件的不同角度报道——"马斯克版微信亮相" vs "马斯克版微信，终于来了！" 标题相似度仅 0.4，但讲的是同一产品。
-
-**解决**：在 `_select_by_tag_quota` 的配额选择循环中，对每篇候选文章检查是否和已入选文章是同一事件：
+解决同一事件多篇报道同时入选的问题。在 `_select_by_tag_quota` 中检查：
 
 ```
 候选文章 → 是否已有同事件入选？
-              │
-              ├── 标题相似度 > 0.5 → 同事件，跳过
-              │
-              ├── 共享核心实体关键词 → 同事件，跳过
-              │   （≥4字符中文实体 or ≥4字符英文实体）
-              │   排除通用词：Agent/Model/AI/大模型/开源/发布等
-              │
-              └── 无匹配 → 不同事件，正常入选
+           ├── 标题相似度 > 0.5 → 同事件，跳过
+           ├── 共享核心实体关键词（≥ 4 字符，排除 Agent/Model/AI/大模型等通用词） → 同事件，跳过
+           └── 无匹配 → 不同事件，正常入选
 ```
 
-**跨管道去重**：main 管道入选的标题传递给 twitter 管道，同一事件不会在两个管道各入选一次。
+跨管道去重：main 管道入选的标题传递给 twitter 管道，同一事件不会在两个管道各入选一次。
 
-**误杀控制**：
-- 通用词排除列表（Agent, Model, AI, Microsoft, OpenAI, 大模型, 人工智能等）
-- 实体长度门槛 ≥4 字符
-- 实证：4-14 数据 OpenClaw 2→1、马斯克版微信 3→2，误杀 2 篇（可接受）
+##### 观点分流（独立板块）
 
-**双层关键词体系的结构性短板**：
-
-| 短板 | 示例 | 原因 |
-|------|------|------|
-| **假阳性（误入）** | "Yi 姓家族 DNA 分析"命中品牌词"Yi" | 关键词**语义歧义**，词边界保护只能解决一部分 |
-| **假阴性（漏掉）** | "微软将投入800亿美元建设数据中心" — 没有任何关键词命中 | 文章用**间接表达**讨论 AI 相关领域 |
-
-**方案 C 的核心思路**：关键词仍是主力（200 篇级别命中量已证明覆盖率不错），LLM 只处理两种边界情况。LLM 不可用时自动跳过，退化为纯关键词筛选。
+opinion 文章**不降权**，从 main/twitter 管道分流到独立的观点池：
 
 ```
-raw.json
-   │
-   ├── Step 3a: 关键词硬筛
-   │   ├── keyword_passed（~200篇）──→ Step 3b: LLM 去噪（复核低置信度命中）──→ 通过 ~180篇
-   │   │                                                                          │
-   │   ├── keyword_rejected（~3800篇）→ Step 3c: LLM 捞漏（batch 标题扫描）──→ 捞回 ~10篇
-   │   │                                                                          │
-   │   └──────────────── 合并 ────────────────────────────────────────────────→ ~190篇
-```
-
-**Step 3b: LLM 去噪（复核关键词假阳性）**
-
-对 `keyword_passed` 中的**低置信度命中**做 LLM 复核：
-
-```python
-# 哪些需要复核？
-needs_review = [
-    a for a in keyword_passed
-    if a["_match_type"] == "brand_only"      # 仅品牌词命中（歧义风险高）
-    and a["_match_count"] == 1               # 只命中了1个词
-    and a["_match_in_title"] == False         # 不是标题命中（正文命中更不确定）
-]
-# 预估：~20-40 篇需要复核
-```
-
-Prompt 设计（batch，一次传 20-30 篇）：
-
-```
-你是一个 AI 资讯相关性判断器。
-
-我关注以下具体领域：
-- AI 核心技术：大模型、训练推理、模型架构、AI 芯片、AI 安全
-- AI Agent：智能体、AI 编程、Function Calling、多 Agent、自动化工作流
-- AI 视频：文生视频、AI 短剧、AI 动画、AI 特效、视频生成模型
-- AI 游戏：AI 原生游戏、智能 NPC、AI 关卡生成、游戏研发提效、游戏 AIGC
-- AI 社交：AI 伴侣、AI 角色扮演、虚拟陪伴、社交 AI 产品
-- AI 产品/应用：AI 搜索、AI 绘画、AI 写作、AI 工具、AI 创业产品
-- AI 行业动态：AI 公司融资、收购、IPO、营收数据
-
-以下是一批文章标题和摘要，它们已通过关键词匹配，但可能存在歧义（如"Yi"可能是人名、
-"GPT"可能是考试缩写、"Phi"可能是物理符号）。
-请基于完整语境判断每篇是否真正与上述任一领域相关。
-
-输出 JSON：[{"id": "xxx", "relevant": true/false, "reason": "一句话原因"}]
-
-文章列表：
-1. [id: abc] 标题: ... 摘要: ...
-2. [id: def] 标题: ... 摘要: ...
-...
-```
-
-**Step 3c: LLM 捞漏（找回关键词假阴性）**
-
-对 `keyword_rejected` 做**轻量标题扫描**，batch 发送：
-
-```python
-# 预过滤：用宽松的人物/公司名单缩小范围，减少 LLM 调用量
-# 这些不是关键词体系里的精确匹配词，而是"可能沾边"的宽松触发词
-loose_trigger_names = [
-    # AI 领域核心人物
-    "Sam Altman", "Satya Nadella", "Jensen Huang", "Elon Musk",
-    "Mark Zuckerberg", "Sundar Pichai", "Demis Hassabis",
-    "Dario Amodei", "李彦宏", "黄仁勋", "马斯克",
-    # 科技巨头（可能间接涉及 AI 基建/战略）
-    "微软", "Microsoft", "谷歌", "Google", "英伟达", "NVIDIA",
-    "苹果", "Apple", "Meta", "Amazon", "亚马逊",
-    "腾讯", "字节", "ByteDance", "阿里", "百度",
-    "台积电", "TSMC", "三星", "Samsung",
-    # 游戏行业（可能涉及 AI 游戏）
-    "Epic Games", "Roblox", "米哈游", "网易游戏", "暴雪",
-    # 社交平台（可能涉及 AI 社交）
-    "Discord", "Snap", "Instagram",
-    # 泛 AI 相关词（很宽松，只是缩小到 LLM 能处理的量）
-    "数据中心", "data center", "芯片", "chip", "GPU",
-    "机器人", "robot", "自动驾驶", "autonomous",
-]
-
-maybe_relevant = [
-    a for a in keyword_rejected
-    if any(name.lower() in a["title"].lower() for name in loose_trigger_names)
-]
-# maybe_relevant 约 100-300 篇 → 2-6 次 batch 调用
-```
-
-Prompt 设计（batch，每批 50 个标题）：
-
-```
-你是一个 AI 资讯相关性判断器。
-
-我高度关注以下具体领域：
-- AI 核心技术：大模型发布、训练推理、模型架构、AI 芯片/算力基建、AI 安全与监管
-- AI Agent：智能体、AI 编程工具、多 Agent 系统、自动化工作流
-- AI 视频：文生视频、AI 短剧/动画/电影、视频生成模型
-- AI 游戏：AI 原生游戏、智能 NPC、游戏 AIGC、游戏研发提效
-- AI 社交：AI 伴侣/角色扮演、虚拟陪伴、社交 AI 产品
-- AI 产品/应用：AI 搜索、AI 绘画、AI 工具、AI 创业产品上线
-- AI 行业动态：AI 头部公司融资/收购/IPO/营收
-
-以下是一批文章标题，它们没有命中预设的 AI 关键词，但可能仍然与上述领域高度相关。
-请识别出那些**确实与上述具体领域核心相关但使用了间接表达**的文章。
-
-例如：
-- "微软将投入800亿美元建设数据中心" → AI 算力基建，属于 ai_core
-- "Sam Altman 谈下一个十年" → AI 领域核心人物，属于 ai_core
-- "Epic 发布新一代虚拟人技术" → 可能涉及 AI+游戏，属于 ai_gaming
-- "Snap 推出新型聊天机器人" → 可能涉及 AI 社交，属于 ai_social
-
-**严格标准：不要把所有沾边的都捞进来，只选明确与上述领域核心相关的。**
-如果一篇文章只是泛泛提到科技公司但与 AI 无直接关系，不要选。
-
-输出 JSON：[{"id": "xxx", "relevant": true, "reason": "...", "suggested_tags": ["ai_core"]}]
-只输出 relevant=true 的。
-
-文章标题列表：
-1. [id: abc] "微软将投入800亿美元建设数据中心"
-2. [id: def] "新一轮科技人才招聘潮"
-...（每批50个标题）
-```
-
-**LLM 调用成本估算**：
-
-| 环节 | 文章数 | 每批大小 | 调用次数 | 输入 token（估） |
-|------|--------|---------|---------|----------------|
-| 去噪（复核假阳性） | ~30 | 30 | 1 | ~3k |
-| 捞漏（预过滤后） | ~200 | 50 | 4 | ~8k |
-| **合计** | | | **~5 次** | **~11k token** |
-
-使用系统默认主模型，成本可忽略不计。
-
-**Fallback 机制（三级退化）**：
-
-```python
-# 优先级：API 自动调用 > CodeBuddy 对话式代跑 > 纯关键词
-try:
-    denoised = llm_denoise(keyword_passed)       # Step 3b
-    rescued = llm_rescue(keyword_rejected)        # Step 3c
-except (APIError, Timeout, RateLimitError):
-    logger.warning("LLM 不可用，fallback 到纯关键词筛选")
-    denoised = keyword_passed                     # 跳过去噪
-    rescued = []                                  # 跳过捞漏
-```
-
-##### CodeBuddy 离线轻筛（当前方案，无需 API Key）
-
-> **2026-04-14 统一**：所有 LLM 工作（editor 摘要、filter 去噪/捞漏）均由 CodeBuddy 在对话中完成，不依赖任何外部 API。已移除所有 OpenAI SDK 调用代码。
-
-**工作流程**：
-
-```
-用户发起对话: "帮我跑一次轻筛"
+main/twitter 管道中的文章
        │
-       ▼
-CodeBuddy 读取 raw.json + config.yaml
+       ├── content_type != "opinion" → 正常参与标签配额竞争
        │
-       ├─ 重跑 Step 1-3a（Normalize → Dedup → Relevance）获取元数据
-       │
-       ├─ Step 3b 去噪：识别低置信度命中文章，直接在对话中逐篇判断
-       │   输出格式：标题 | ✅保留/❌踢掉 | 理由
-       │
-       ├─ Step 3c 捞漏：扫描宽松触发词命中的被拒文章，判断是否值得捞回
-       │   输出格式：标题 | ✅捞回(标签) / ❌不捞 | 理由
-       │
-       └─ 将判断结果写回 filtered.json（通过 Python 脚本执行）
+       └── content_type == "opinion" → 分流到观点池
+                                        │
+                                        ▼
+                                   排序：VIP 优先 > 综合评分
+                                   取 top-3 → 行业观点板块
 ```
 
-**与 API 调用模式的对比**：
+VIP 作者：Sam Altman / Matthew Ball / Andrej Karpathy / Yann LeCun / Ben Thompson / Simon Willison / ...
 
-| 维度 | API 自动调用 | CodeBuddy 代跑 |
-|------|---------------|
-| 触发方式 | `run_filter()` 自动检测 `llm_filter_results.json`；无文件时导出候选 |
-| 需要 API Key | ❌ 不需要，用 CodeBuddy 自身模型 |
-| 判断质量 | 取决于 CodeBuddy 主模型能力 |
-| 可审计性 | 对话全程可见，判断过程透明 |
-| 自动化程度 | 半自动（CodeBuddy 生成结果后，filter.py 自动应用） |
-| 适用场景 | 所有场景（日常运行 + 调试审核） |
+##### 防伪 URL 第一重防线
 
-**脚本支持**：`scripts/run_llm_light_filter.py` 封装了完整的重跑流程，CodeBuddy 判断完成后通过修改脚本中的判断列表即可一键写入 filtered.json。
+- Layer 2 在 run_filter 结束时自动生成 `llm_results_template.json`
+- URL 从 `filtered.json` 直接预填，不需要人工手写
+- 下游 Layer 3 读取此模板，避免 URL 手写错误
 
-**实证数据（2026-04-13）**：
-
-| 指标 | 纯关键词 | + CodeBuddy 轻筛 |
-|------|---------|-----------------|
-| 去噪 | 0 篇踢掉 | 3 篇假阳性踢掉 |
-| 捞漏 | 0 篇捞回 | 8 篇捞回 |
-| 最终入选 | 41 篇 | 43 篇 |
-| ai_gaming 覆盖 | 7 篇 | 9 篇 |
-
-**GitHub 预留接口**：
-
-当前 GitHub Trending 使用渠道通行证直接通过，不经过关键词+LLM 筛选。但如果未来调整 GitHub 的收集范围（如不再限于 Trending、加入自定义仓库监控等），可以复用 LLM 轻筛的去噪/捞漏工具。接口设计预留 `pipeline` 参数：
-
-```python
-def llm_light_filter(articles, pipeline="main"):
-    """
-    LLM 轻筛通用接口。
-    pipeline: "main" | "github"（未来扩展）
-    不同 pipeline 可使用不同的 prompt 模板和触发条件。
-    """
-```
-
-**LLM 模型选型**：使用系统默认主模型（跟随 config.yaml 中的全局 LLM 配置），不额外指定模型。
-
-#### 相关性标签
-
-> **2026-04-14 重构**：板块定义全面更新，ai_social 限定为 AI 社交产品，ai_agent 扩展游戏化社交/创作人格，opinion 扩展为观点+宏观洞察，ai_gaming 新增 AI Native 玩法。
-
-| 标签 | 关注领域 | 优先级 | 主日报配额 |
-|------|----------|--------|----------|
-| `ai_core` | AI 核心技术：大模型发布/架构创新/训练推理/Scaling Law、具身智能/世界模型/Physical AI、学术论文/基准评测/开源模型、模型能力变化。不含：芯片硬件/AI安全合规/纯数学 | core | 3 |
-| `ai_agent` | AI Agent 产品与架构：AI 编程助手（Cursor/Copilot/Claude Code）、自动化工作流编排、多 Agent 协作、Agent Memory/OS、**Agent 游戏化社交**（斯坦福 AI 小镇/扣子养虾）、AI 桌面助手、**AI 创作人格**（Ribbi 等） | core | **10** |
-| `ai_video` | AI 视频与影像生成：AI 视频生成模型（Sora/Vidu/Kling）、AI 短剧/动画/电影、AI 图像生成/编辑、文生视频/图生视频 | core | 5 |
-| `ai_gaming` | AI + 游戏：AI 驱动的游戏新玩法（AI NPC/AI 剧情生成/AI UGC 关卡编辑器）、**AI Native 游戏设计**、游戏行业应用 AI 深度报道。不含：纯游戏行业新闻（营收/人事/评测） | core | 5 |
-| `ai_social` | **AI 社交产品（仅限具体产品）**：融合 AI 能力的社交软件（AI 版微信/XChat/AI 推特等）、AI 虚拟伴侣/角色扮演社交平台。不含宏观社会影响讨论 | core | 5 |
-| `ai_product` | 其他 AI 产品与应用（兜底板块）：AI 办公工具、AI 搜索、AI 硬件产品 | supplementary | 3 |
-| `ai_business` | AI 商业动态：投融资/收购/IPO/营收财报、公司竞争策略（内部信/定价/市场份额）、AI 产品出海商业化 | supplementary | 3 |
-| `opinion` | **观点与宏观洞察**：个人观点/评论/行业展望/思考（非事实性新闻）、AI 宏观议题（AI 伦理/治理/哲学/就业影响/AI 孵化器生态分析等非产品类讨论） | independent | 3（独立池） |
-| `ai_business` | AI 行业动态 / 融资 | fyi | 3 |
-
-#### 热度评分（满分 8 分）
-
-**主日报管道（rss/wechat/exa）— 四维度**：
-
-```
-时效性(0-3.0) + 覆盖广度(0-3.0) + LLM质量分(0-1.5)
-+ 内容类型调整(tech_product:+0.5, opinion:+0.0, news:+0.0)
-+ 优质源 bonus(0-0.5)
-```
-
-> **2026-04-14 更新**：将"多标签加成"维度替换为"LLM 质量分"维度。
-> quality 0-3 由 LLM classify 时同步打分，映射为评分加成：quality×0.5（最高1.5分）。
-> 效果：区分度从 0.5 分扩大到 2+ 分，重大产品发布(q=3)比活动推广(q=0)高 1.5 分。
-
-**quality 定义**：
-
-| quality | 含义 | 评分加成 | 示例 |
-|---------|------|---------|------|
-| 3 | 重大 | +1.5 | 产品首发/技术突破/独家深度/重要开源/重大融资收购 |
-| 2 | 常规 | +1.0 | 行业报告/公司动态/产品更新/技术解析/垂直领域周报盘点 |
-| 1 | 边缘 | +0.5 | 消费评测/泛科技/轻度相关 |
-| 0 | 噪声 | +0.0 | 活动推广/榜单征集/申报/投票/招聘/广告/纯拼接型聚合新闻 |
-
-**quality=0 强制规则**（标为 not_relevant）：
-- 标题含"申报""征集""报名""投票"等行动号召词 → 一律 quality=0
-- 标题用分号/竖线拼接 ≥3 条无关新闻的聚合晚报/早报/速递 → quality=0
-- 垂直领域周报（如"AI短剧周报"）聚焦单一主题的除外
-
-**GitHub/Twitter 管道** — 保留互动数据维度（stars/likes 有真实数据，不受影响）。
-
-#### filtered.json 格式
+#### filtered.json 示例
 
 ```json
 {
   "date": "2026-04-13",
   "filtered_at": "2026-04-13T23:35:00+08:00",
-  "config_snapshot": {
-    "scoring_dimensions": "主日报四维度（时效3+覆盖3+quality质量1.5+内容类型调整）满分8；GitHub/Twitter保留互动数据维度",
-    "content_type_scoring": "tech_product:+0.5, opinion:+0.0, news:+0.0",
-    "pipeline_quotas": {
-      "main": {"ai_core": 3, "ai_agent": 10, "ai_video": 5, "ai_gaming": 5, "ai_social": 5, "ai_product": 3, "ai_business": 3},
-      "github": {"ai_core": 3, "ai_agent": 3, "ai_video": 2, "ai_gaming": 2, "ai_social": 2, "ai_product": 2, "ai_business": 1},
-      "twitter": {"ai_core": 2, "ai_agent": 2, "ai_video": 1, "ai_gaming": 1, "ai_social": 1, "ai_product": 1, "ai_business": 1}
-    },
-    "quality_control": {"twitter_min_heat": 50, "github_min_stars": 5},
-    "dedup_window_hours": 72
-  },
   "stats": {
     "input": 4265,
     "after_dedup": 3800,
     "after_relevance": 200,
     "after_filter": 43,
     "by_section": {"main": 30, "github": 8, "twitter": 5},
-    "by_relevance_tag": {"ai_core": 80, "ai_agent": 50, "ai_gaming": 30, "ai_video": 20, "ai_social": 10, "ai_product": 5, "ai_business": 5},
-    "by_tag_passed": {"ai_core": 5, "ai_agent": 5, "ai_gaming": 5, "ai_video": 5, "ai_social": 3, "ai_product": 5, "ai_business": 3}
+    "by_tag_passed": {"ai_core": 5, "ai_agent": 8, "ai_gaming": 5, "ai_video": 5, "ai_social": 3, "ai_product": 3, "ai_business": 3}
   },
   "articles": [
     {
@@ -1011,38 +513,16 @@ def llm_light_filter(articles, pipeline="main"):
       "title": "Introducing GPT-5",
       "url": "https://openai.com/blog/gpt-5",
       "published_at": "2026-04-13T18:00:00Z",
-      "summary_clean": "We're releasing GPT-5...",
+      "summary_clean": "...",
       "output_section": "main",
       "score": 7.5,
-      "score_details": {"signal_strength": 2.0, "timeliness": 2.5, "coverage": 2.0, "quality": 1.5},
+      "score_details": {"timeliness": 2.5, "coverage": 2.0, "quality": 1.5, "content_type": 0.5, "source_bonus": 0.0},
       "relevance_tags": ["ai_core"],
-      "relevance_priority": "core",
       "primary_tag_llm": "ai_core",
       "quality": 3,
       "is_duplicate": false,
       "coverage_count": 5,
-      "filtered_out": false,
-      "filter_reason": null
-    },
-    {
-      "source_name": "GitHub Trending",
-      "channel": "github",
-      "title": "openai/codex - Code generation agent",
-      "url": "https://github.com/openai/codex",
-      "output_section": "github",
-      "score": 3.2,
-      "score_details": {"stars_rank": 2.0, "newness_bonus": 1.0, "topic_relevance": 0.2},
-      "extra": {"stars": 5200, "repo_created_at": "2026-04-01T...", "repo_language": "Python"}
-    },
-    {
-      "source_name": "Twitter Search",
-      "channel": "twitter",
-      "title": "@karpathy: GPT-5 is a significant leap...",
-      "url": "https://x.com/karpathy/status/...",
-      "output_section": "twitter",
-      "score": 3.0,
-      "score_details": {"likes_rank": 2.0, "retweets_rank": 0.8, "extra_engagement": 0.2},
-      "extra": {"likes": 12500, "retweets": 3200, "views": 850000}
+      "filtered_out": false
     }
   ]
 }
@@ -1050,120 +530,107 @@ def llm_light_filter(articles, pipeline="main"):
 
 ---
 
-### 3.3 Layer 3: 编辑（editor.py）✅ 已实现
+### 3.3 Layer 3: 编辑（editor.py）
 
-> **职责**：读取 filtered.json + llm_results.json，按板块渲染 Markdown 日报
+> **职责**：读取 `filtered.json` + `llm_results.json`，按板块渲染 Markdown 日报
 > **原则**：LLM 工作由 CodeBuddy 在对话中完成，不依赖外部 API
-> **状态**：✅ 完整工作流已实现（2026-04-14）
-> **最近更新**：2026-04-14，summary 基于全文生成；URL 精确匹配替代顺序索引；summary 写作规范（≤40字、[主体]+[动作]+[结果]）
+> **状态**：✅ 已实现
+
+#### 输入 / 输出
+
+- **输入**：
+  - `data/{date}/filtered.json`（仅 `filtered_out=false` 的文章）
+  - `data/{date}/llm_results_template.json`（Layer 2 预填 URL 模板）
+  - `data/{date}/llm_results.json`（CodeBuddy 生成的摘要/关键词/洞察）
+- **输出**：`data/{date}/daily.md` —— Markdown 格式日报
 
 #### 工作流
 
 ```
-CodeBuddy 对话                            editor.py 脚本
-─────────────                              ────────────────
-1. 读取 filtered.json                      
-2. 按 Prompt 模板为每个板块                
-   生成 LLM 结果                           
-3. 写入 llm_results.json                   
-                                           4. 加载 filtered.json + llm_results.json
-                                           5. 三管道分组（main/twitter/github）
-                                           6. 逐板块渲染 Markdown
-                                           7. 输出 daily.md
+CodeBuddy 对话                      editor.py 脚本
+─────────────                        ────────────────
+1. 读取 filtered.json                
+2. 读取 llm_results_template.json    
+   （URL 已预填）                    
+3. 对每篇入选文章 web_fetch 原文     
+4. 按 Prompt 模板生成 LLM 结果        
+5. 写入 llm_results.json             
+                                     6. 加载 filtered.json + llm_results.json
+                                     7. _validate_llm_urls() URL 防伪校验
+                                     8. 三管道分组（main/twitter/github）
+                                     9. 逐板块渲染 Markdown
+                                    10. 占位符拦截（__TODO__ / __MUST_FETCH__）
+                                    11. 输出 daily.md
 ```
-
-#### 输入
-
-- `data/{date}/filtered.json`（仅 `filtered_out=false` 的文章）
-- `data/{date}/llm_results.json`（CodeBuddy 预生成的摘要/关键词/洞察）
-
-#### 输出
-
-- `data/{date}/daily.md` — Markdown 格式日报
 
 #### 四板块渲染架构
 
 ```
 filtered.json 入选文章
        │
-       ├── channel in (rss, wechat, exa, manual) ─┬─ opinion → 💡 行业观点板块
-       │                                           │            VIP优先 > 评分，取 top-3
-       │                                           │
-       │                                           └─ 非opinion → 📰 主日报管道
-       │                                                          按 relevance_tag 分 7 个板块
+       ├── channel in (rss, wechat, exa, manual)
+       │     ├── opinion → 💡 行业观点板块（VIP 优先 > 评分，top-3）
+       │     └── 非 opinion → 📰 主日报（按 relevance_tag 分 7 个垂直板块）
        │
-       ├── channel == twitter ──┬─ opinion → 💡 行业观点板块（合并）
-       │                        └─ 非opinion → 🐦 Twitter 热门
-       │                                       按 score 降序，取 top-N
+       ├── channel == twitter
+       │     ├── opinion → 💡 行业观点板块（合并）
+       │     └── 非 opinion → 🐦 Twitter 热门（按 score 降序，top-N）
        │
-       └── channel == github → 🐙 GitHub 热门项目
-              按 stars 降序，取 top-N
+       └── channel == github → 🐙 GitHub 热门项目（按 stars 降序，top-N）
 ```
 
-#### LLM 结果加载（LLMResultLoader）
+#### LLM 结果匹配机制
 
-> **2026-04-14 重大更新**：匹配机制从顺序索引改为 URL 精确匹配；summary 基于源文章全文生成。
+**匹配优先级**（解决旧顺序索引漂移问题）：
+1. **URL 精确匹配**：`article.url == item.url`（最可靠）
+2. **标题前缀匹配**：`article.title[:30] == item.title[:30]`（fallback）
+3. **旧式顺序索引**：`int(item.id) - 1`（兼容旧格式）
 
-`llm_results.json` 由 CodeBuddy 在对话中按 Prompt 模板生成，结构：
+#### 4 个 Prompt 模板
 
-```json
-{
-  "ai_core": {
-    "articles": [
-      {"id": 1, "url": "https://...", "title": "原文标题", "summary": "...", "keywords": ["k1", "k2"]},
-      ...
-    ],
-    "insight": "板块洞察..."
-  },
-  "twitter": { ... },
-  "github": { ... }
-}
-```
+| Prompt | 适用场景 | 特殊规则 |
+|---|---|---|
+| `SECTION_PROMPT` | 主日报 7 个垂直板块 | 强制结构 `[主体]+[动作]+[结果]` |
+| `TWITTER_PROMPT` | Twitter 推文 | 额外展示热度数据 🔁views |
+| `GITHUB_PROMPT` | GitHub 项目 | 优先读 README.md 无需逐行源码；必须以项目名开头 |
+| `OPINION_PROMPT` | 行业观点板块 | VIP 作者优先；侧重 why/how |
 
-- 每个板块的 key 对应 `relevance_tag`（主日报）或 `"twitter"` / `"github"`
-- **匹配优先级**（解决旧顺序索引漂移问题）：
-  1. **URL 精确匹配**：`article.url == item.url`（最可靠）
-  2. **标题前缀匹配**：`article.title[:30] == item.title[:30]`（fallback）
-  3. **旧式顺序索引**：`int(item.id) - 1`（兼容旧格式）
-
-**summary 生成流程**（2026-04-14 新增）：
-
-```
-入选文章 URL → web_fetch 抓取全文 → 基于全文写摘要
-```
-
-- 微信/RSS 文章均通过 web_fetch 抓取原文全文
-- summary 基于全文核心内容生成，而非仅靠标题推测
-- Twitter 推文本身即全文，无需额外抓取
-
-#### Prompt 模板（summary 写作规范）
-
-> 2026-04-14 优化：强制结构公式、字数压缩到 ≤40 字、加入正反示例
-
-三个 Prompt 模板（`SECTION_PROMPT`、`TWITTER_PROMPT`、`GITHUB_PROMPT`）的 summary 核心规范：
+#### Summary 写作规范（四个 Prompt 共性）
 
 | 维度 | 要求 |
-|------|------|
-| **结构** | **[主体] + [做了什么] + [关键结果]** |
-| **字数** | ≤40 字中文，只保留最核心的一个事件 |
-| **具体性** | 必须出现具体产品名/公司名/人名，禁止"某AI产品""新工具"等模糊表述 |
+|---|---|
+| **字数** | **15-80 字硬约束**（下限防碎片，上限像新闻副标题） |
+| **结构** | `[主体] + [做了什么] + [关键结果]` |
+| **具体性** | 必须出现具体产品名/公司名/人名，禁止模糊表述 |
 | **反重复** | 一句话中不得用不同措辞说同一件事 |
 | **反渲染** | 删掉"全面突围""标志着""引爆市场"等空洞修饰 |
-| **与关键词的关系** | 互补不重叠 — keywords 承载实体名，summary 聚焦事件动态 |
-| **GitHub 特殊** | 必须以项目名开头，说功能不说评价 |
+| **全文阅读** | ⚠️ 强制要求 web_fetch 原文后再生成，不靠标题推测 |
+| **语言** | 所有英文 summary 必须翻译为中文 |
+| **与关键词的关系** | 互补不重叠 —— keywords 承载实体名，summary 聚焦事件动态 |
 
-好的示例：
-- ✅ "Anthropic发布Managed Agents架构，将推理与执行解耦提升Agent扩展性"
-- ✅ "Cisco拟3.5亿美元收购AI安全公司Astrix Security"
-- ✅ "markitdown: 微软开源的多格式转Markdown工具"
+**好的示例**：
+- ✅ "OpenAI 发布 Codex CLI 0.4，开源 AGENTS.md 规范并统一 Cursor / Claude Code 等多客户端上下文"（36 字）
+- ✅ "蚂蚁 CodeFuse 推出 NES 模式（Next Edit Suggestion），不等 Tab 就主动推荐下一步编辑，对标 Cursor 预测编辑"（51 字）
+- ✅ "Anthropic 发布 Claude Design：把设计师的 UI 草图直接翻译为可运行组件并同步到 Figma"（45 字）
 
-差的示例：
-- ❌ "Anthropic获取70%新增企业客户，Claude推出灵魂校准对齐策略，从工程师口碑到企业信任全面突围"
-- ❌ "新款AI男友产品上线，标志着AI情感陪伴从女性市场延伸到全性别覆盖"
+**反例**（字数超 / 堆砌 / 渲染过度）：
+- ❌ "Anthropic 获取 70% 新增企业客户，Claude 推出灵魂校准对齐策略，从工程师口碑到企业信任全面突围"
+
+#### 防伪双重防线
+
+- **第一重**（Layer 2）：`filter.py` 自动生成 `llm_results_template.json`，URL 预填
+- **第二重**（Layer 3）：`editor.py` 的 `_validate_llm_urls()` 校验 LLM 结果 URL 与 filtered.json 一致，不匹配则报错终止
+
+#### 占位符拦截（C1）
+
+三个 `_render_*` 函数（`_render_main_article` / `_render_twitter_article` / `_render_github_article`）中增加占位符检测：
+- summary 含 `__TODO__` 或 `__MUST_FETCH__` 时 fallback 到 title
+- 打印 `[C1]` warning
+- 防止占位符渲染到日报
 
 #### Markdown 渲染格式
 
-**主日报文章**：
+**主日报 / 行业观点文章**：
 ```markdown
 - **一句话概括（LLM summary）**
   关键词: k1 | k2 | k3 · 04-13 · [原文](url)
@@ -1194,108 +661,234 @@ filtered.json 入选文章
 
 > **洞察**: 今日多家大厂发布新模型...
 
-- **OpenAI发布GPT-5，多模态能力全面超越前代**
-  关键词: GPT-5 | 多模态 · 04-13 · [原文](url)
+- ...
+
+## AI Agent
+
+> **洞察**: ...
+
 - ...
 
 ---
+
+## 行业观点
+
+> **洞察**: ...
+
+- ...
 
 ## Twitter 热门
 
-> **洞察**: 开发者社区热议...
-
 - ...
-
----
 
 ## GitHub 热门项目
 
-> **洞察**: 本周Agent框架和推理优化项目霸榜...
-
 - ...
-```
-
-#### 板块配置（config.yaml → editor）
-
-```yaml
-editor:
-  # 顺序决定双标签文章归属优先级：垂直领域优先于 ai_core
-  sections:
-    - tag: ai_agent
-      title: "AI Agent"
-    - tag: ai_video
-      title: "AI视频"
-    - tag: ai_gaming
-      title: "AI游戏"
-    - tag: ai_social
-      title: "AI社交"
-    - tag: ai_core
-      title: "AI通用技术/模型"
-    - tag: ai_product
-      title: "其他值得关注的产品"
-    - tag: ai_business
-      title: "AI行业动态"
-  opinion_section:
-    title: "行业观点"
-    max_items: 3
-  twitter_section:
-    title: "Twitter 热门"
-    max_items: 10
-  github_section:
-    title: "GitHub 热门项目"
-    max_items: 10
 ```
 
 ---
 
 ### 3.4 Layer 4: 归档（archiver.py）
 
-> **职责**：日报发布后的知识沉淀和长期存储
-> **原则**：将一次性日报转化为可检索的知识资产
+> **职责**：对产品进行多信息源深度分析，产出策略级洞察报告
+> **原则**：手动触发、按需运行；LLM 工作由 CodeBuddy 完成
+> **状态**：✅ 已实现
 
-#### 输入
+#### 两种触发方式
 
-- `data/{date}/daily.md`
-- `data/{date}/filtered.json`
+**方式一：从日报选择产品**
+```bash
+python -m layers.archiver --list                      # 列出当天日报可选产品
+python -m layers.archiver --product "Archon"          # 直接分析指定产品
+python -m layers.archiver                             # 交互式选择
+```
 
-#### 输出
+**方式二：手动输入链接**
+```bash
+python -m layers.archiver --url "https://github.com/xxx"              # GitHub
+python -m layers.archiver --url "https://twitter.com/xxx/status/123"  # Twitter
+python -m layers.archiver --url "https://techcrunch.com/xxx"          # 文章
+python -m layers.archiver --url "https://reddit.com/r/xxx"            # Reddit
+python -m layers.archiver --url "/path/to/image.png"                  # 图片
+```
 
-- `data/{date}/archived.json` — 归档记录（带元信息标注）
-- `knowledge_base/` — 知识沉淀（长期积累）
+#### 工作流
 
-#### 处理步骤
+```
+用户触发（两种方式之一）
+     │
+     ▼
+┌─────────────────────────┐
+│ Step 1: 识别输入来源     │   从日报匹配 / URL 自动识别类型
+│                         │   （GitHub / Twitter / Reddit / 文章 / 图片）
+└──────┬──────────────────┘
+       ▼
+┌─────────────────────────┐
+│ Step 2: 构建素材信息     │   提取产品名、初始元数据
+│                         │   合并日报中该产品的所有文章
+└──────┬──────────────────┘
+       ▼
+┌─────────────────────────┐
+│ Step 3: 加载 Prompt     │   从 layers/report_template.md
+│                         │   提取 REPORT_PROMPT 常量
+└──────┬──────────────────┘
+       ▼
+┌─────────────────────────┐
+│ Step 4: 生成输入骨架     │   素材填入 Prompt
+│                         │   → data/{date}/llm_report_input.json
+└──────┬──────────────────┘
+       ▼
+┌─────────────────────────┐
+│ Step 5: CodeBuddy 工作   │   用户在对话中触发
+│                         │   ① 多源信息采集（web_fetch / web_search）
+│                         │   ② 生成 10 模块结构报告
+└──────┬──────────────────┘
+       ▼
+┌─────────────────────────┐
+│ Step 6: 报告归档         │   写入 data/reports/{product}/{date}.md
+│                         │   头部带 YAML front matter（飞书迁移预埋）
+└─────────────────────────┘
+```
 
-##### Step 1: 归档记录
+#### 报告结构：10 模块
 
-将当日文章的元信息（标题、URL、分类、AI 摘要、评分）写入 `archived.json`，作为长期索引。
+报告 Prompt 定义在 `layers/report_template.md` 的 `REPORT_PROMPT` 段落：
 
-##### Step 2: 知识沉淀
+| # | 模块 | 关键字段 |
+|---|---|---|
+| ★ | **一句话速览** | 产品 + 最核心卖点 + 时间点 |
+| 1 | **产品概览** | 产品名 / 所属赛道 / 成立时间 / 当前状态 / 创始团队 / 体验地址 |
+| 2 | **投融资与资源背景** | 融资轮次 / 金额 / 投资方 / 估值 / 战略资源 |
+| 3 | **核心功能** | 功能点 / 竞品差异点 |
+| 4 | **技术方案** | 技术架构 / 技术壁垒 / 开源情况 / 开发者生态 |
+| 5 | **版本迭代** | 里程碑时间线 / 迭代节奏 / 方向转变 / 路线图 |
+| 6 | **商业模式与市场数据** | 商业模式 / 定价 / DAU-收入-增长 / 市场规模 |
+| 7 | **用户需求与产品策略** | 用户画像 / 痛点 / 切入点 / 增长飞轮 / 定价合理性 |
+| 8 | **竞争格局** | 赛道简述 / 竞品对比表 / 波特五力 / 行业结构判断 |
+| 9 | **产品总结** | 核心优势 / 关键短板 / 机会窗口 / 潜在风险（含非技术壁垒：品牌/数据/生态等） |
+| 10 | **行业趋势信号** | 相关方影响 / 趋势判断 / 后续节点 |
 
-从高分文章中提取关键信息，按主题分类存入 `knowledge_base/`：
-- 关键技术/模型发布的时间线
-- 行业趋势追踪
-- 重要融资/并购事件
+#### 链接类型识别
 
-##### Step 3: 数据清理
+`_detect_source_type(url)` 根据 URL 特征自动识别：
+- `github` — github.com 域名
+- `twitter` — twitter.com / x.com 域名
+- `reddit` — reddit.com 域名
+- `image` — 扩展名在 IMAGE_EXTENSIONS 中（.png / .jpg / .jpeg / .gif / .webp / .bmp / .svg）
+- `article` — 默认 fallback
 
-- 30 天前的 `raw.json` 可自动清理（节省空间）
-- `filtered.json` 和 `daily.md` 永久保留
-- `knowledge_base/` 永久保留
+#### 按产品归档
+
+```
+data/reports/
+├── Archon/
+│   ├── 2026-04-16.md
+│   └── 2026-04-17.md
+├── SuperClaude/
+│   └── 2026-04-16.md
+└── OpenClaw/
+    └── 2026-04-18.md
+```
+
+**优点**：同产品多次分析集中存储，方便纵向追踪产品演进。
+
+#### 飞书迁移预埋
+
+报告头部自动包含 YAML front matter，为当前和未来的多维表格同步预留结构化元数据（已于 2026-04-19 由 `syncer.py` 实现自动同步）：
+
+```yaml
+---
+product: Archon
+date: 2026-04-16
+source_mode: daily_report      # daily_report | manual_url
+source_url: https://github.com/archon-ai/archon
+source_type: github            # github | twitter | reddit | article | image
+tags: [ai_agent, ai_core]
+---
+```
+
+#### knowledge_base/ 预埋
+
+`knowledge_base/` 目录保留用作未来：
+- 从报告中提取关键事实
+- 按主题分类存储（模型发布时间线、行业趋势、融资事件等）
+- 长期积累后作为个人 AI 知识库
+
+当前 Layer 4 尚未实现自动知识提取，预留接口。
+
+---
+
+### 3.5 Layer 4: 同步（syncer.py）
+
+**职责**：把"已生成深度报告的产品"同步到飞书多维表格，同时把深度报告 md 和日报 md 存入独立 GitHub 仓库，表格里只记录 blob URL 作为索引。
+
+#### 为什么拆一个独立仓库存报告
+
+| 需求 | NewsFunnel 主仓库 | 报告仓库（独立 GitHub repo）|
+|---|---|---|
+| 版本追踪 | 代码/文档变更 | 每日产出（日报 + 深度报告）|
+| 提交频率 | 低（几天/次） | 高（每日 + 每份报告）|
+| 关注者 | 开发者（维护架构） | 内容读者（飞书表格跳转点击）|
+| 仓库膨胀 | 逻辑代码，可控 | md 文件只增不减，长期 GB 级 |
+
+**结论**：主仓库保持“代码/架构文档”职能不变；每日输出都走独立的报告仓库（通过 `.env` 中 `PRODUCT_ANALYSIS_OWNER` / `PRODUCT_ANALYSIS_REPO` 配置），避免历史被每日 md 淹没。
+
+#### 三种同步模式
+
+```bash
+# 模式 1：产品同步（深度报告推 GitHub + 表格 create/update）
+python -m layers.syncer --date 2026-04-18 --products "Archon, OpenClaw"
+
+# 模式 2：仅更新已有记录的"深度报告"字段（其他字段不动）
+python -m layers.syncer --date 2026-04-18 --update "Archon"
+
+# 模式 3：仅推送日报 md 到 GitHub（不动飞书表格）
+python -m layers.syncer --date 2026-04-18 --push-daily
+```
+
+#### 存储布局
+
+```
+<reports-repo>/                        # 独立 GitHub 仓库（本地 clone 在主仓库外）
+├── 2026-04-18/
+│   ├── daily.md                       # 当日日报（push-daily 触发）
+│   ├── Archon.md                      # 产品深度报告（products 触发）
+│   └── OpenClaw.md
+└── 2026-04-19/
+    └── ...
+```
+
+飞书表格「深度报告」列写入：
+`https://github.com/{owner}/{repo}/blob/{branch}/{date}/{product}.md`
+
+#### 幂等与字段写入契约
+
+- **稳定 ID** = `md5(产品名 + 原文url)[:16]`，命中即 update，未命中即 create
+- **受管字段白名单**：`产品名 / 日期 / 板块 / 一句话简讯 / 关键词 / 原文链接 / 深度报告 / 稳定ID`
+  - 表格上手工维护的字段（如「进度」「备注」）和系统字段（如「创建时间」）**永不触碰**
+  - 隐藏字段不影响 API 读写，表格视图层隐藏 OK
+
+#### 降级策略
+
+| 情形 | 行为 |
+|---|---|
+| 深度报告 md 不存在 | 对应字段留空，其他字段照常同步 |
+| GitHub push 失败 | 打印 warning，跳过深度报告字段，其他字段照常写入 |
+| LLM 字段（summary/keywords）缺失 | 留空，不中断 |
+| 飞书 token 失效（401） | 自动刷新一次；再失败则整体报错 |
 
 ---
 
 ## 四、全局配置（config.yaml）
 
-合并原来的 `sources.yaml`，扩展为全局配置：
-
 ```yaml
 # ═══════════════════════════════════════════
-# AI Daily News — 全局配置
+# NewsFunnel — 全局配置
 # ═══════════════════════════════════════════
 
 # ── 全局参数 ──
 global:
-  project_name: "AI Daily News"
+  project_name: "NewsFunnel"
   data_dir: "./data"
   manual_input_dir: "./manual_input"
   log_level: "INFO"
@@ -1307,41 +900,25 @@ collector:
   max_retries: 2
   retry_delay_seconds: 5
   max_concurrent_fetches: 10
-  max_entry_age_days: 2              # 只保留近 N 天内的文章
-  # 信息源定义
+  max_entry_age_days: 2
   sources:
     rss: [...]         # RSS 订阅源（news/ai_companies/game_industry/vc_blogs/hn_blogs）
     github: [...]      # GitHub Trending / Search API / Blog
     exa_search: [...]  # Exa 搜索（无 RSS 兜底 + RSS 失效源迁移）
     twitter: [...]     # Twitter/X 搜索 + 重点账号
-    wechat: [...]      # 微信公众号（36 个已订阅）
+    wechat: [...]      # 微信公众号（通过 we-mp-rss）
 
 # ── Layer 2: 筛选配置 ──
 filter:
   dedup_window_hours: 72
   title_similarity_threshold: 0.85
-  # 三管道独立配额（替代旧的 quota_per_tag）
+  # 三管道独立配额
   pipeline_quotas:
-    main:                               # 📰 主日报管道（rss/wechat/exa/manual）
-      ai_core: 3
-      ai_agent: 5
-      ai_video: 5
-      ai_gaming: 5
-      ai_social: 5
-      ai_product: 3
-      ai_business: 3
-    github:                             # 🐙 GitHub 管道
-      ai_core: 2
-      ai_agent: 3
-      ai_video: 2
-      ...
-    twitter:                            # 🐦 Twitter 管道
-      ai_core: 2
-      ai_agent: 2
-      ...
-  quota_per_tag: {...}                  # 后备配额（pipeline_quotas 未配置的管道退化）
+    main:    {ai_core: 5, ai_agent: 10, ai_video: 5, ai_gaming: 5, ai_social: 5, ai_product: 3, ai_business: 3}
+    github:  {ai_core: 2, ai_agent: 3,  ai_video: 2, ai_gaming: 2, ai_social: 2, ai_product: 1, ai_business: 1}
+    twitter: {ai_core: 2, ai_agent: 2,  ai_video: 1, ai_gaming: 1, ai_social: 1, ai_product: 1, ai_business: 1}
+  quota_per_tag: {...}       # 后备配额（pipeline_quotas 未配置的管道退化）
   default_quota: 5
-  min_articles_warning: 3
   # LLM 轻筛
   llm_light_filter:
     enabled: true
@@ -1351,61 +928,55 @@ filter:
   # 内容类型分类
   content_type:
     tech_product_bonus: 0.5
-    opinion_penalty: -1.0
+    opinion_penalty: 0.0       # 不再降权，改为分流
     vip_authors: [...]
     vip_sources: [...]
-  # 渠道通行证（仅 manual）
+  # 渠道通行证
   always_pass_channels:
     - manual
   # 质量控制门槛
   twitter_quality:
-    min_heat: 50                        # 综合热度最低门槛
+    min_heat: 50
   github_quality:
-    min_stars: 5                        # 最低 stars 门槛
+    trending_min_stars: 100
+    new_min_stars: 30
   # 冷门保护
   cold_protection:
     enabled: true
     threshold_override: 2
     max_protected_per_day: 3
-    protected_sources: ["Simon Willison", "Lilian Weng", ...]
+    protected_sources: ["Simon Willison", "Lilian Weng", "Jay Alammar"]
     protected_tags: ["ai_core", "ai_gaming", "ai_agent"]
   # 双层关键词体系
   relevance_tags:
-    ai_core: { priority: core, signals: [...], brands: [...] }
-    ai_gaming: { ... }
-    ai_video: { ... }
-    ai_social: { ... }
-    ai_agent: { ... }
-    ai_product: { priority: supplementary, ... }
-    ai_business: { priority: fyi, signals: [...], company_whitelist: [...] }
-  source_weights: {...}                 # 仅用于去重选代表
-  source_tiers: {...}                   # 源级别（official/media/aggregate）影响时效性衰减
-  channel_weights: {...}                # 渠道默认权重
-  engagement_thresholds: {...}          # 互动数据阈值
-  url_strip_params: [...]               # URL tracking 参数清理
+    ai_core:     {priority: core, signals: [...], brands: [...]}
+    ai_agent:    {priority: core, signals: [...], brands: [...]}
+    ai_video:    {priority: core, signals: [...], brands: [...]}
+    ai_gaming:   {priority: core, signals: [...], brands: [...]}
+    ai_social:   {priority: core, signals: [...], brands: [...]}
+    ai_product:  {priority: supplementary, ...}
+    ai_business: {priority: supplementary, signals: [...], company_whitelist: [...]}
+  source_weights: {...}       # 去重选代表
+  source_tiers: {...}         # 源级别（official/media/aggregate）影响时效性衰减
+  channel_weights: {...}      # 渠道默认权重
+  url_strip_params: [...]     # URL tracking 参数清理
 
 # ── Layer 3: 编辑配置 ──
 editor:
-  # LLM 工作由 CodeBuddy 在对话中完成，不依赖外部 API
-  # Prompt 模板参见 layers/editor.py
-  summary_max_length: 50
-  # 主日报板块（按 relevance_tag 映射，固定顺序展示）
+  # Prompt 模板参见 layers/editor.py 中的 SECTION_PROMPT / TWITTER_PROMPT / GITHUB_PROMPT / OPINION_PROMPT
+  summary_min_length: 15
+  summary_max_length: 80
   sections:
-    - tag: ai_core
-      title: "AI通用技术/模型"
-    - tag: ai_agent
-      title: "AI Agent"
-    - tag: ai_video
-      title: "AI视频"
-    - tag: ai_gaming
-      title: "AI游戏"
-    - tag: ai_social
-      title: "AI社交"
-    - tag: ai_product
-      title: "其他值得关注的产品"
-    - tag: ai_business
-      title: "AI行业动态"
-  # Twitter / GitHub 独立小节
+    - {tag: ai_agent,    title: "AI Agent"}
+    - {tag: ai_video,    title: "AI视频"}
+    - {tag: ai_gaming,   title: "AI游戏"}
+    - {tag: ai_social,   title: "AI社交"}
+    - {tag: ai_core,     title: "AI通用技术/模型"}
+    - {tag: ai_product,  title: "其他值得关注的产品"}
+    - {tag: ai_business, title: "AI行业动态"}
+  opinion_section:
+    title: "行业观点"
+    max_items: 3
   twitter_section:
     title: "Twitter 热门"
     max_items: 10
@@ -1415,8 +986,9 @@ editor:
 
 # ── Layer 4: 归档配置 ──
 archiver:
+  # Prompt 模板参见 layers/report_template.md 中的 REPORT_PROMPT
   raw_retention_days: 30
-  knowledge_extraction: true
+  report_dir: "./data/reports"
 ```
 
 ---
@@ -1428,50 +1000,50 @@ archiver:
 主调度器：串联 4 层，支持从任意层开始。
 
 用法：
-    python pipeline.py                    # 完整运行 4 层
+    python pipeline.py                    # 完整运行 Layer 1-3
     python pipeline.py --from layer2      # 从 Layer 2 开始（使用已有 raw.json）
     python pipeline.py --only layer1      # 只运行 Layer 1
     python pipeline.py --date 2026-04-12  # 指定日期（重跑历史）
+
+Layer 4 不在 pipeline.py 自动链路中，按需独立触发：
+    python -m layers.archiver --product "Archon"
 """
 ```
 
-关键设计点：
+### 关键设计点
+
 - **层间解耦**：每层只读取上一层的 JSON 文件，不直接调用上一层的函数
 - **幂等性**：同一层对同一 date 多次运行，结果一致
 - **断点续跑**：任何一层失败，修复后可从该层重跑，不需要重跑前面的层
-- **手工输入**：`manual_input/` 中的文件在 Layer 1 运行时自动合入 raw.json
+- **手工输入**：`manual_input/` 中的文件在 Layer 1 运行时自动合入 `raw.json`
+
+### 调度方式
+
+| 方式 | 工具 | 说明 |
+|---|---|---|
+| **定时** | macOS launchd | `com.niu.wechat-auto-fetch.plist` 每日 12:00 / 22:00 触发微信采集 |
+| **手动** | `pipeline.py` CLI | Layer 1 / Layer 2 / Layer 3 完整链路；Layer 4 独立触发 |
+
+> `com.niu.ai-daily-collector.plist` 已 unload（2026-04-17），Layer 1 改为手动触发，避免 LLM token 消耗。plist 文件保留，恢复命令：`launchctl load ~/Library/LaunchAgents/com.niu.ai-daily-collector.plist`。
 
 ---
 
-## 六、manual_input/ 人工输入
+## 六、手工输入（manual_input/）
 
 支持随时手动丢入文章，格式灵活：
 
 ```
 manual_input/
 ├── article1.json          # JSON 格式（标准 RawArticle）
-├── article2.md            # Markdown 格式（标题+链接+简介）
+├── article2.md            # Markdown 格式（标题 + 链接 + 简介）
 └── article3.txt           # 纯文本（一行一个 URL）
 ```
 
-Layer 1 运行时会扫描此目录，解析后合入 raw.json，处理完成后移入 `manual_input/.processed/`。
+Layer 1 运行时会扫描此目录，解析后合入 `raw.json`，处理完成后移入 `manual_input/.processed/`。
 
 ---
 
-## 七、与旧架构的映射
-
-| 旧架构 | 新架构 | 变化 |
-|--------|--------|------|
-| Layer 1: 信息源配置 (sources.yaml) | **合并进 config.yaml** | 配置不再是独立层，而是 Layer 1 的输入参数 |
-| Layer 2: 采集引擎 (Fetcher+Pipeline) | **拆分为 Layer 1 收集 + Layer 2 筛选** | 原来的采集和处理拆成了"只管拿"和"只管选" |
-| Layer 3: AI 摘要/日报 (未实现) | **Layer 3: 编辑** ✅ | CodeBuddy 预生成 LLM 结果 + 三管道渲染 |
-| _(无)_ | **Layer 4: 归档** | 新增，知识沉淀能力 |
-| _(无)_ | **manual_input/** | 新增，支持人工输入 |
-| _(无)_ | **pipeline.py 主调度器** | 新增，层间编排 + 断点续跑 |
-
----
-
-## 八、关键设计决策
+## 七、关键设计决策
 
 ### Q1: 为什么用 JSON 文件而不是 SQLite 做层间通信？
 
@@ -1486,61 +1058,66 @@ Layer 1 运行时会扫描此目录，解析后合入 raw.json，处理完成后
 
 - **职责单一**：Layer 1 只管"拿到数据"，Layer 2 只管"判断质量"
 - **可独立运行**：采集失败不影响用已有数据做筛选
-- **可插入人工**：manual_input 在 Layer 1 汇入，Layer 2 统一评判
+- **可插入人工**：`manual_input/` 在 Layer 1 汇入，Layer 2 统一评判
 - **可换方案**：筛选策略从规则升级到 LLM，只改 Layer 2
 
-### Q3: knowledge_base 怎么用？
+### Q3: 为什么 LLM 工作全部由 CodeBuddy 完成，而不走 API？
 
-- Layer 4 自动从高价值文章中提取关键事实
-- 按主题分类存储（模型发布时间线、行业趋势、融资事件等）
-- 后续可供 Layer 3 参考（"上周我们报道过..."）
-- 长期积累后可作为个人 AI 知识库
+- **零配置**：不需要维护 `OPENAI_API_KEY` 等外部 API Key
+- **成本可控**：CodeBuddy 主模型按对话会话计费，没有跑飞的风险
+- **可审计**：对话全程可见，判断过程透明
+- **可调试**：出问题时可以实时纠正 LLM 判断，而不是等一轮跑完才发现
 
-### Q4: 调度怎么做？
+> 代价：需要用户发起对话触发，不能 100% 自动化。当前仅 Layer 1 的数据采集是全自动的。
 
-两种运行模式：
-1. **定时模式**：通过系统 cron 或 CodeBuddy Automation 每天运行一次完整 pipeline
-2. **手动模式**：通过命令行指定参数运行
+### Q4: 为什么 Layer 4 不进 pipeline.py 自动链路？
 
-建议先用手动模式开发调试，稳定后再配置自动化。
-
----
-
-## 九、执行优先级
-
-| 阶段 | 内容 | 状态 |
-|------|------|------|
-| **P0** | config.yaml + pipeline.py 骨架 + Layer 1 collector.py | ✅ 已完成 |
-| **P0** | Layer 2 filter.py (dedup + score + filter + LLM轻筛) | ✅ 已完成 |
-| **P1** | Layer 1 补全 (Exa + Twitter + WeChat + Manual Fetcher) | ✅ 已完成 |
-| **P1** | Layer 3 editor.py (LLM 结果加载 + 三管道渲染 + 日报生成) | ✅ 已完成 |
-| **P2** | Layer 4 archiver.py (归档 + 知识沉淀) | ⏳ 待实现 |
-| **P2** | 自动化调度 (Cron / Automation) | ⏳ 待实现 |
+- **Layer 4 是按需分析**：不是每天都需要生成产品深度报告
+- **产品选择是用户决策**：自动分析会产生大量低价值报告
+- **触发成本高**：10 模块报告 LLM 调用成本远超日报，不适合每日跑
 
 ---
 
-## 十、依赖清单
+## 八、变更日志与历史索引
+
+### 每日变更日志
+
+位于 `~/.codebuddy/memory/{YYYY-MM-DD}.md`（CodeBuddy Agent 全局记忆目录，**不随仓库提交**），按日期组织。每天完成 > 3 处改动的会话后，建议在此留痕；跨项目共享记忆便于 Agent 回溯上下文。
+
+### 演进史与中间形态
+
+位于 [`docs/history/`](./history/README.md) 目录：
+
+| 文档 | 内容 |
+|---|---|
+| [`history/README.md`](./history/README.md) | 演进时间线 + 6 个关键里程碑 |
+| [`history/layer1-evolution.md`](./history/layer1-evolution.md) | Layer 1 演进（twikit→xreach / RSS→Exa / Trending 日期修复 / launchd 迁移等） |
+| [`history/layer2-evolution.md`](./history/layer2-evolution.md) | Layer 2 演进（10 次改进 / LLM 轻筛方案 C / quota 演进 / 板块 5 轮 / 冷门保护 / 事件级去重等） |
+| [`history/layer3-evolution.md`](./history/layer3-evolution.md) | Layer 3 演进（URL 匹配机制 / summary 规范 4 轮迭代 / 4 个 Prompt 独立化等） |
+| [`history/deprecated.md`](./history/deprecated.md) | 已废弃/已替代的方案（twikit / API 自动调用 / 单一 quota_per_tag / 观点降权策略 / prompt_template 字段等） |
+
+---
+
+## 九、依赖清单
 
 ```txt
 # Layer 1: 收集
 feedparser>=6.0.11        # RSS/Atom 解析
-exa-py>=1.1.0             # Exa 搜索 API（无 RSS 网站兜底）
-httpx>=0.27.0             # 异步 HTTP 客户端（带超时/重试）
-# Twitter/X 采集通过 xreach CLI（agent-reach skill），无需 Python 包
+exa-py>=1.1.0             # Exa 搜索 API
+httpx>=0.27.0             # 异步 HTTP 客户端
+# Twitter/X 采集通过 xreach CLI，无需 Python 包
 
 # Layer 2: 筛选
 beautifulsoup4>=4.12.3    # HTML 清洗
 python-dateutil>=2.9.0    # 日期解析
 
 # Layer 3: 编辑（LLM 由 CodeBuddy 完成，不依赖外部 API）
-# jinja2>=3.1              # 模板渲染（可选，当前未使用）
 
-# Layer 4: 归档
-# 无额外依赖
+# Layer 4: 归档（LLM 由 CodeBuddy 完成，不依赖外部 API）
 
 # 通用
 pyyaml>=6.0.1             # YAML 配置解析
-python-dotenv>=1.0.1      # 环境变量（.env 文件）
+python-dotenv>=1.0.1      # 环境变量
 pydantic>=2.7.0           # 数据校验
 rich>=13.7.0              # 美化终端输出
 ```
@@ -1548,5 +1125,5 @@ rich>=13.7.0              # 美化终端输出
 ---
 
 *初始设计：2026-04-13*
-*最后更新：2026-04-16*
-*Layer 1-3 已实现，Layer 4 待实现*
+*最后更新：2026-04-19*
+*Layer 1-4 已实现；板块定义第 5 轮收敛完成；已完成开源化脱敏*

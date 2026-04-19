@@ -70,6 +70,7 @@ python -m layers.archiver --url "https://github.com/xxx"  # 手动输入链接
 
 ### 日报生成（Layer 3）
 - **全文摘要**：通过 web_fetch 抓取原文全文后生成摘要，而非仅靠标题
+- **summary 硬约束**：15-80 字中文、必须含产品名、禁堆砌数字、what+so what
 - **7 垂直板块**：AI Agent / AI视频 / AI游戏 / AI社交 / AI通用技术 / AI行业动态 / AI产品
 - **独立板块**：Twitter 热门 / GitHub 热门趋势 / GitHub 新品发现 / 行业观点
 - **防伪 URL 双重防线**：自动生成 URL 模板 + 编辑阶段校验
@@ -83,17 +84,19 @@ python -m layers.archiver --url "https://github.com/xxx"  # 手动输入链接
 
 | 板块 | 标签 | 关注领域 |
 |------|------|---------|
-| AI Agent | `ai_agent` | AI 编程助手、自动化工作流、多 Agent 协作、Agent 游戏化社交 |
-| AI视频 | `ai_video` | 文生视频、AI 短剧/动画/电影、视频生成模型 |
-| AI游戏 | `ai_gaming` | AI NPC、AI 关卡生成、AI Native 游戏、桌面宠物/助手 |
+| AI Agent | `ai_agent` | AI 编程助手（Cursor/Copilot/Claude Code/Manus/Harness/Evolver/OpenClaw/CodeFuse NES 等）、自动化工作流、多 Agent 协作、Agent 游戏化社交；**例外**大厂官方 Agent 运行时重大里程碑（OpenAI Agents SDK / MS agent-framework / Google ADK / Anthropic Harness 的战略级更新） |
+| AI视频 | `ai_video` | 文生视频、AI 短剧/动画/电影、视频生成模型、TTS/语音模型 |
+| AI游戏 | `ai_gaming` | AI NPC、AI 关卡生成、AI Native 游戏、桌面宠物/助手、世界模型 |
 | AI社交 | `ai_social` | AI 伴侣、角色扮演社交平台、融合 AI 的社交软件 |
-| AI通用技术 | `ai_core` | 大模型发布/架构创新、开源模型、具身智能/世界模型 |
+| AI通用技术 | `ai_core` | 大模型发布/架构创新、开源模型（不含世界模型/TTS/具身智能/自动驾驶） |
 | AI行业动态 | `ai_business` | 投融资/收购/IPO/营收、公司竞争策略 |
 | AI产品 | `ai_product` | AI 办公/搜索/绘画/写作等其他 AI 应用 |
 | 行业观点 | `opinion` | 个人观点/评论/行业展望（独立池，VIP优先） |
 | Twitter 热门 | - | 按综合热度排序 |
 | GitHub 热门趋势 | - | Trending Daily + Weekly，stars≥100 |
 | GitHub 新品发现 | - | Search API，stars≥30 |
+
+> ℹ️ **日报不再收录**：具身智能 / Physical AI / 人形机器人 / 自动驾驶类新闻；开源 Agent SDK / 框架的普通小版本更新（LangChain/CrewAI/Dify/AutoGen 等）。
 
 ## 目录结构
 
@@ -112,26 +115,20 @@ ai-daily/
 ├── scripts/
 │   ├── gen_llm_results_skeleton.py  # LLM 结果骨架生成（含 web_fetch 清单）
 │   └── run_llm_light_filter.py      # LLM 轻筛重跑脚本
-├── data/                    # 运行时数据（按日期组织，gitignore）
-│   ├── {date}/
-│   │   ├── raw.json                 # Layer 1 输出
-│   │   ├── filtered.json            # Layer 2 输出
-│   │   ├── llm_filter_input.json    # LLM 分类候选（稳定哈希ID）
-│   │   ├── llm_filter_results.json  # LLM 分类结果（tag+quality）
-│   │   ├── llm_results_template.json # Layer 3 URL 预填模板
-│   │   ├── llm_results.json         # Layer 3 摘要/关键词/洞察
-│   │   └── daily.md                 # 最终日报
-│   ├── reports/{product}/{date}.md  # Layer 4 产品分析报告
-│   └── github_seen.json             # GitHub 持久化去重记录
+├── data/                    # 运行时产物与调试文件（gitignore）
+│                            # 仅作为本地测试/验证/debug 中间产物，不是必须输出
+│                            # 子目录按 {date}/ 组织：raw→filtered→llm_results→daily.md
 ├── knowledge_base/          # Layer 4 沉淀的知识
 ├── manual_input/            # 人工添加的文章
 ├── docs/
-│   └── architecture.md      # 架构设计文档（含完整变更记录）
+│   ├── architecture.md      # 架构设计文档（含完整变更记录）
+│   ├── user-guide.md        # 跑测 SOP / 对话框模板
+│                            # 每日变更日志外迁至 ~/.codebuddy/memory/{date}.md
+├── AGENTS.md                # Agent 协作契约（趋于稳定）
 ├── requirements.txt
 ├── .env.example
 └── .gitignore
 ```
-
 ## 技术栈
 
 | 组件 | 选型 | 说明 |
@@ -156,5 +153,6 @@ ai-daily/
 
 | 版本 | 日期 | 说明 |
 |------|------|------|
+| v0.3 | 2026-04-18 | 板块定义第五轮：剔除具身智能/Physical AI/人形机器人/自动驾驶；ai_agent 新增"大厂官方 Agent 运行时里程碑"例外条款；editor.py 四个 Prompt summary 字数统一为 15-80 字硬约束；AGENTS.md 和 user-guide.md 的 Layer 2 权威来源从不存在的 `prompt_template` 字段纠正为 `layers/filter.py` 的 `CLASSIFY_PROMPT` / `RESCUE_PROMPT` 常量 |
 | v0.2 | 2026-04-17 | 初步跑通 Layer 1-4，新增产品分析报告、GitHub 管道拆分、防伪URL校验 |
 | v0.1 | 2026-04-15 | 初始版本，初步跑通 Layer 1-3 |
