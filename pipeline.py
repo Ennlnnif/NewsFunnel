@@ -1,4 +1,4 @@
-#!/Users/niu/.workbuddy/binaries/python/versions/3.14.3/bin/python3
+#!/usr/bin/env python3
 """
 AI Daily News — 主调度器
 

@@ -1,6 +1,5 @@
 # AI Daily News — 四层流水线依赖
 # Python >= 3.10
-# 推荐使用: /Users/niu/.workbuddy/binaries/python/versions/3.14.3/bin/python3
 
 # ── Layer 1: 收集（collector） ──
 feedparser>=6.0.11         # RSS/Atom 解析
